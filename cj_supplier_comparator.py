@@ -32,27 +32,27 @@ def get_cj_access_token():
     return token
 
 # ---------------------------
-# CJ API Order Fetch
+# Get CJ Order By OrderNum
 
-def get_cj_orders(token):
+def get_cj_order_by_order_num(token, order_num):
     url = "https://developers.cjdropshipping.com/api2.0/v1/shopping/order/list"
     headers = {'CJ-Access-Token': token}
-
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=30)
     params = {
+        "orderNumber": order_num,
         "page": 1,
-        "pageSize": 200,
-        "startDate": start_date.strftime('%Y-%m-%d 00:00:00'),
-        "endDate": end_date.strftime('%Y-%m-%d 23:59:59')
+        "pageSize": 1
     }
     response = requests.get(url, headers=headers, params=params)
     response_json = response.json()
 
     if response_json['code'] != 200:
-        raise Exception(f"Failed to get CJ orders: {response_json.get('message', 'Unknown error')}")
+        raise Exception(f"Failed to get CJ order: {response_json.get('message', 'Unknown error')}")
 
-    return response_json['data']['list']
+    data_list = response_json['data']['list']
+    if len(data_list) > 0:
+        return data_list[0]
+    else:
+        return None
 
 # ---------------------------
 # Get order details (productList)
@@ -72,7 +72,7 @@ def get_cj_order_detail(token, order_id):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (FINAL BUNDLE FIX VERSION 🚀)")
+st.title("Eleganto COG Audit Tool ✅ (FINAL BUNDLE + PROGRESS BAR VERSION 🚀)")
 
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
 
@@ -97,22 +97,17 @@ if uploaded_file and st.button("Run Full Comparison"):
         st.write(f"✅ Loaded {len(supplier_orders)} supplier orders.")
 
         token = get_cj_access_token()
-        cj_orders = get_cj_orders(token)
-        st.write(f"✅ Pulled {len(cj_orders)} CJ orders.")
-
-        cj_order_map = {}
-        for order in cj_orders:
-            order_num = order.get('orderNum', None)
-            if order_num:
-                cj_order_map[str(order_num).replace('#', '').strip()] = order
 
         report = []
+        progress = st.progress(0)
+
         for idx, row in supplier_orders.iterrows():
             supplier_order_id = str(row['ShopifyOrderID']).replace('#', '').strip()
             supplier_total = row['SupplierTotalPrice']
             supplier_items = row['SupplierItemCount']
 
-            cj_order = cj_order_map.get(supplier_order_id)
+            # Query CJ for this specific orderNum
+            cj_order = get_cj_order_by_order_num(token, supplier_order_id)
             if cj_order:
                 cj_total = float(cj_order['orderAmount'])
                 order_id = cj_order['orderId']
@@ -122,13 +117,15 @@ if uploaded_file and st.button("Run Full Comparison"):
                 detail = get_cj_order_detail(token, order_id)
                 product_list = detail.get('productList', [])
 
-                # Apply bundle filtering logic here
+                # Bundle filtering logic: ignore packaging products
+                exclude_keywords = ['case', 'box', 'storage', 'package', 'packaging']
+
                 cj_items = 0
                 for item in product_list:
                     product_name = item.get('productName', '').lower()
                     qty = item.get('quantity', 0)
 
-                    if not any(keyword in product_name for keyword in ['case', 'box', 'storage']):
+                    if not any(keyword in product_name for keyword in exclude_keywords):
                         cj_items += qty
 
                 qty_match = 'YES' if cj_items == supplier_items else 'NO'
@@ -148,6 +145,8 @@ if uploaded_file and st.button("Run Full Comparison"):
                 'CJItemCount': cj_items,
                 'QuantityMatch': qty_match
             })
+
+            progress.progress((idx + 1) / len(supplier_orders))
 
         report_df = pd.DataFrame(report)
 
