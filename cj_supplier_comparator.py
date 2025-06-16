@@ -40,7 +40,7 @@ def get_cj_order_by_order_num(token, order_num):
     params = {
         "orderNumber": order_num,
         "page": 1,
-        "pageSize": 1
+        "pageSize": 10  # <-- FIXED
     }
     response = requests.get(url, headers=headers, params=params)
     response_json = response.json()
@@ -72,7 +72,7 @@ def get_cj_order_detail(token, order_id):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (FINAL BUNDLE + PROGRESS BAR VERSION 🚀)")
+st.title("Eleganto COG Audit Tool ✅ (FINAL FULL FIX VERSION 🚀)")
 
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
 
@@ -106,7 +106,6 @@ if uploaded_file and st.button("Run Full Comparison"):
             supplier_total = row['SupplierTotalPrice']
             supplier_items = row['SupplierItemCount']
 
-            # Query CJ for this specific orderNum
             cj_order = get_cj_order_by_order_num(token, supplier_order_id)
             if cj_order:
                 cj_total = float(cj_order['orderAmount'])
