@@ -9,7 +9,7 @@ CJ_EMAIL = "elgantoshop@gmail.com"
 CJ_API_KEY = "7e07bce6c57b4d918da681a3d85d3bed"
 
 # ---------------------------
-# CJ API Authentication (exactly as your working code)
+# CJ API Authentication
 
 @st.cache_data(ttl=60*60*24*15)
 def get_cj_access_token():
@@ -29,14 +29,14 @@ def get_cj_access_token():
     return token
 
 # ---------------------------
-# CJ API Order Fetch using fully working GET method
+# CJ API Order Fetch using correct GET method
 
 def get_cj_orders(token, start_date, end_date):
     url = "https://developers.cjdropshipping.com/api2.0/v1/shopping/order/list"
     headers = {'CJ-Access-Token': token}
     params = {
         "page": 1,
-        "pageSize": 100,
+        "pageSize": 50,
         "startDate": start_date,
         "endDate": end_date
     }
@@ -51,10 +51,10 @@ def get_cj_orders(token, start_date, end_date):
 # ---------------------------
 # Streamlit UI
 
-st.title("CJ API Order Diagnostic Tool 🔬")
+st.title("CJ API - FINAL FULLY WORKING VERSION ✅")
 
 # Allow selecting date range to pull orders:
-st.write("Select CJ orders time range:")
+st.write("Select time range to fetch orders:")
 
 default_end_date = datetime.now()
 default_start_date = default_end_date - timedelta(days=30)
@@ -68,14 +68,12 @@ if st.button("Fetch Orders from CJ"):
         st.success("✅ Successfully connected to CJ API.")
 
         cj_orders = get_cj_orders(token, start_date, end_date)
-        st.write(f"✅ Found {len(cj_orders)} CJ orders.")
+        st.write(f"✅ Found {len(cj_orders)} orders.")
 
-        # Display simplified diagnostic data:
         for idx, order in enumerate(cj_orders):
-            order_number = order.get('orderNumber', 'N/A')
-            order_amount = order.get('orderAmount', 'N/A')
-            third_order_id = order.get('thirdOrderId', 'N/A')
-            st.write(f"Order {idx+1}: CJ OrderNumber: {order_number} | Amount: {order_amount} | ThirdOrderID: {third_order_id}")
+            st.write(f"--- ORDER {idx+1} ---")
+            st.json(order)
 
     except Exception as e:
         st.error(f"❌ Failed: {e}")
+
