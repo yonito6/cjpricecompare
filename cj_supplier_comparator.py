@@ -4,6 +4,7 @@ import numpy as np
 import requests
 import json
 from datetime import datetime, timedelta
+from tqdm import tqdm
 
 # ---------------------------
 # Your CJ Seller Credentials
@@ -12,6 +13,7 @@ CJ_API_KEY = "7e07bce6c57b4d918da681a3d85d3bed"
 
 # ---------------------------
 # CJ API Authentication
+
 @st.cache_data(ttl=60*60*24*15)
 def get_cj_access_token():
     url = "https://developers.cjdropshipping.com/api2.0/v1/authentication/getAccessToken"
@@ -30,55 +32,54 @@ def get_cj_access_token():
     return token
 
 # ---------------------------
-# Fetch order list (only basic info, with orderId)
-def get_cj_orders(token):
+# CJ API Order Fetch using GET method
+
+def get_cj_orders(token, order_nums):
     url = "https://developers.cjdropshipping.com/api2.0/v1/shopping/order/list"
     headers = {'CJ-Access-Token': token}
 
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=30)
-    params = {
-        "pageNum": 1,
-        "pageSize": 200,
-        "startDate": start_date.strftime('%Y-%m-%d 00:00:00'),
-        "endDate": end_date.strftime('%Y-%m-%d 23:59:59')
-    }
-    response = requests.get(url, headers=headers, params=params)
-    response_json = response.json()
+    all_orders = {}
 
-    if response_json['code'] != 200:
-        raise Exception(f"Failed to get CJ orders: {response_json.get('message', 'Unknown error')}")
+    # We fetch by pages to avoid missing orders
+    page = 1
+    page_size = 50  # safer size
 
-    return response_json['data']['list']
+    pbar = tqdm(total=len(order_nums), desc="Fetching CJ orders")
 
-# ---------------------------
-# Fetch order full details for accurate quantity extraction
-def get_cj_order_detail(token, order_id):
-    url = f"https://developers.cjdropshipping.com/api2.0/v1/shopping/order/getOrderDetail?orderId={order_id}"
-    headers = {'CJ-Access-Token': token}
-    response = requests.get(url, headers=headers)
-    response_json = response.json()
+    while True:
+        params = {
+            "pageNum": page,
+            "pageSize": page_size,
+            "startDate": (datetime.now() - timedelta(days=60)).strftime('%Y-%m-%d 00:00:00'),
+            "endDate": datetime.now().strftime('%Y-%m-%d 23:59:59')
+        }
 
-    if response_json['code'] != 200:
-        return None
-    return response_json['data']
+        response = requests.get(url, headers=headers, params=params)
+        response_json = response.json()
 
-# ---------------------------
-# Calculate accurate quantity from full order detail
-def calculate_total_quantity(order_detail):
-    total_qty = 0
-    for product in order_detail.get("productInfoList", []):
-        is_group = product.get("isGroup", False)
-        if is_group:
-            sub_products = product.get("subOrderProducts", [])
-            total_qty += sum(sub.get("quantity", 0) for sub in sub_products)
-        else:
-            total_qty += product.get("quantity", 0)
-    return total_qty
+        if response_json['code'] != 200:
+            raise Exception(f"Failed to get CJ orders: {response_json.get('message', 'Unknown error')}")
+
+        orders = response_json['data']['list']
+
+        for order in orders:
+            order_num = str(order.get('orderNum')).replace('#', '').strip()
+            if order_num in order_nums:
+                all_orders[order_num] = order
+                pbar.update(1)
+
+        if page * page_size >= response_json['data']['total']:
+            break
+
+        page += 1
+
+    pbar.close()
+    return all_orders
 
 # ---------------------------
 # Streamlit UI
-st.title("Eleganto COG Audit Tool ✅ (FINAL CLEAN FIXED VERSION)")
+
+st.title("Eleganto COG Audit Tool ✅ FINAL VERSION")
 
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
 
@@ -102,16 +103,14 @@ if uploaded_file and st.button("Run Full Comparison"):
 
         st.write(f"✅ Loaded {len(supplier_orders)} supplier orders.")
 
+        # Extract Shopify order IDs to lookup in CJ
+        supplier_order_ids = set(str(order).replace('#', '').strip() for order in supplier_orders['ShopifyOrderID'])
+
         token = get_cj_access_token()
-        cj_orders = get_cj_orders(token)
-        st.write(f"✅ Pulled {len(cj_orders)} CJ orders.")
+        cj_order_map = get_cj_orders(token, supplier_order_ids)
+        st.write(f"✅ Pulled {len(cj_order_map)} matched CJ orders.")
 
-        cj_order_map = {}
-        for order in cj_orders:
-            order_num = order.get('orderNum', None)
-            if order_num:
-                cj_order_map[str(order_num).replace('#', '').strip()] = order
-
+        # Build final report
         report = []
         for idx, row in supplier_orders.iterrows():
             supplier_order_id = str(row['ShopifyOrderID']).replace('#', '').strip()
@@ -120,11 +119,8 @@ if uploaded_file and st.button("Run Full Comparison"):
 
             cj_order = cj_order_map.get(supplier_order_id)
             if cj_order:
-                cj_total = float(cj_order.get('orderAmount') or 0)
-                order_id = cj_order.get('orderId')
-                order_detail = get_cj_order_detail(token, order_id)
-
-                cj_items = calculate_total_quantity(order_detail) if order_detail else 0
+                cj_total = float(cj_order['orderAmount']) if cj_order['orderAmount'] else 0
+                cj_items = sum(item['quantity'] for item in (cj_order.get('productList') or []))
                 qty_match = 'YES' if cj_items == supplier_items else 'NO'
                 price_diff = supplier_total - cj_total
             else:
@@ -156,7 +152,6 @@ if uploaded_file and st.button("Run Full Comparison"):
         })
 
         final_df = pd.concat([report_df, total_row], ignore_index=True)
-
         st.write(final_df)
 
         csv = final_df.to_csv(index=False)
