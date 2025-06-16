@@ -49,13 +49,18 @@ def get_cj_order_detail(token, order_num):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (FINAL FIXED PRODUCTION VERSION)")
+st.title("Eleganto COG Audit Tool ✅ (FULLY COMPATIBLE VERSION)")
 
-uploaded_file = st.file_uploader("Upload Supplier CSV (.csv)", type=["csv"])
+uploaded_file = st.file_uploader("Upload Supplier File (.csv or .xlsx)", type=["csv", "xlsx"])
 
 if uploaded_file and st.button("Run Full Comparison"):
     try:
-        supplier_df = pd.read_csv(uploaded_file)
+        # Read file according to format
+        if uploaded_file.name.endswith(".xlsx"):
+            supplier_df = pd.read_excel(uploaded_file)
+        else:
+            supplier_df = pd.read_csv(uploaded_file)
+
         supplier_df['Name'] = supplier_df['Name'].fillna(method='ffill')
 
         supplier_orders = supplier_df.groupby('Name').agg({
