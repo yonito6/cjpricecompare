@@ -17,7 +17,7 @@ def get_cj_order(order_id):
     data = {
         "page": 1,
         "pageSize": 50,
-        "shopifyOrderId": order_id.replace("#", "")
+        "shopifyOrderId": order_id  # NO replacement now
     }
     response = requests.post(url, headers=headers, json=data)
     response_json = response.json()
@@ -33,7 +33,7 @@ def get_cj_order(order_id):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool v3.1")
+st.title("Eleganto COG Audit Tool v3.2")
 st.write("Upload your Supplier CSV file to compare with CJ Dropshipping.")
 
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
