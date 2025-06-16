@@ -1,6 +1,4 @@
 import streamlit as st
-import pandas as pd
-import numpy as np
 import requests
 import json
 from datetime import datetime, timedelta
@@ -11,7 +9,7 @@ CJ_EMAIL = "elgantoshop@gmail.com"
 CJ_API_KEY = "7e07bce6c57b4d918da681a3d85d3bed"
 
 # ---------------------------
-# CJ API Authentication (fully working)
+# CJ API Authentication (exactly as your working code)
 
 @st.cache_data(ttl=60*60*24*15)
 def get_cj_access_token():
@@ -31,14 +29,14 @@ def get_cj_access_token():
     return token
 
 # ---------------------------
-# CJ API Order Fetch (fully working GET method from your version)
+# CJ API Order Fetch using fully working GET method
 
 def get_cj_orders(token, start_date, end_date):
     url = "https://developers.cjdropshipping.com/api2.0/v1/shopping/order/list"
     headers = {'CJ-Access-Token': token}
     params = {
         "page": 1,
-        "pageSize": 200,  # pull more orders per call
+        "pageSize": 100,
         "startDate": start_date,
         "endDate": end_date
     }
@@ -53,12 +51,9 @@ def get_cj_orders(token, start_date, end_date):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto Final COG Audit Tool ✅ (CJ working version)")
+st.title("CJ API Order Diagnostic Tool 🔬")
 
-# Supplier file uploader
-uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
-
-# Allow selecting date range to pull CJ orders:
+# Allow selecting date range to pull orders:
 st.write("Select CJ orders time range:")
 
 default_end_date = datetime.now()
@@ -67,87 +62,20 @@ default_start_date = default_end_date - timedelta(days=30)
 start_date = st.date_input("Start date", default_start_date, key="start_date").strftime('%Y-%m-%d 00:00:00')
 end_date = st.date_input("End date", default_end_date, key="end_date").strftime('%Y-%m-%d 23:59:59')
 
-if uploaded_file and st.button("Run Full Comparison"):
+if st.button("Fetch Orders from CJ"):
     try:
-        # Process supplier file
-        supplier_df = pd.read_excel(uploaded_file)
-        supplier_df['Name'] = supplier_df['Name'].fillna(method='ffill')
-
-        supplier_orders = supplier_df.groupby('Name').agg({
-            'Product fee': 'sum',
-            'QTY': 'sum',
-            'Total price': 'first'
-        }).reset_index()
-
-        supplier_orders.rename(columns={
-            'Name': 'ShopifyOrderID',
-            'Product fee': 'SupplierProductCost',
-            'QTY': 'SupplierItemCount',
-            'Total price': 'SupplierTotalPrice'
-        }, inplace=True)
-
-        st.write(f"✅ Loaded {len(supplier_orders)} supplier orders.")
-
-        # Pull CJ Orders using your exact fully working code
         token = get_cj_access_token()
+        st.success("✅ Successfully connected to CJ API.")
+
         cj_orders = get_cj_orders(token, start_date, end_date)
-        st.write(f"✅ Pulled {len(cj_orders)} CJ orders.")
+        st.write(f"✅ Found {len(cj_orders)} CJ orders.")
 
-        # Build CJ mapping using thirdOrderId (Shopify Order ID)
-        cj_order_map = {}
-        for order in cj_orders:
-            third_order_id = order.get('thirdOrderId', None)
-            if third_order_id:
-                cj_order_map[str(third_order_id).replace('#', '').strip()] = order
-
-        # Build comparison report
-        report = []
-        for idx, row in supplier_orders.iterrows():
-            supplier_order_id = str(row['ShopifyOrderID']).replace('#', '').strip()
-            supplier_total = row['SupplierTotalPrice']
-            supplier_items = row['SupplierItemCount']
-
-            cj_order = cj_order_map.get(supplier_order_id)
-            if cj_order:
-                cj_total = float(cj_order['orderAmount'])  # This is the final COG we compare!
-                cj_items = sum(item['orderQuantity'] for item in cj_order['orderProductList'])
-                qty_match = 'YES' if cj_items == supplier_items else 'NO'
-                price_diff = supplier_total - cj_total
-            else:
-                cj_total = np.nan
-                cj_items = np.nan
-                qty_match = 'NO DATA'
-                price_diff = np.nan
-
-            report.append({
-                'ShopifyOrderID': supplier_order_id,
-                'SupplierTotalPrice': supplier_total,
-                'CJOrderAmount': cj_total,
-                'PriceDifference': price_diff,
-                'SupplierItemCount': supplier_items,
-                'CJItemCount': cj_items,
-                'QuantityMatch': qty_match
-            })
-
-        report_df = pd.DataFrame(report)
-
-        # Add total summary row
-        total_row = pd.DataFrame({
-            'ShopifyOrderID': ['TOTAL'],
-            'SupplierTotalPrice': [report_df['SupplierTotalPrice'].sum()],
-            'CJOrderAmount': [report_df['CJOrderAmount'].sum()],
-            'PriceDifference': [report_df['PriceDifference'].sum()],
-            'SupplierItemCount': [report_df['SupplierItemCount'].sum()],
-            'CJItemCount': [report_df['CJItemCount'].sum()],
-            'QuantityMatch': ['-']
-        })
-
-        final_df = pd.concat([report_df, total_row], ignore_index=True)
-
-        st.write(final_df)
-
-        csv = final_df.to_csv(index=False)
-        st.download_button("Download Full Report CSV", data=csv, file_name="eleganto_cog_audit.csv", mime='text/csv')
+        # Display simplified diagnostic data:
+        for idx, order in enumerate(cj_orders):
+            order_number = order.get('orderNumber', 'N/A')
+            order_amount = order.get('orderAmount', 'N/A')
+            third_order_id = order.get('thirdOrderId', 'N/A')
+            st.write(f"Order {idx+1}: CJ OrderNumber: {order_number} | Amount: {order_amount} | ThirdOrderID: {third_order_id}")
 
     except Exception as e:
         st.error(f"❌ Failed: {e}")
