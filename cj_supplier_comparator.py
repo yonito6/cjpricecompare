@@ -59,7 +59,7 @@ def get_all_cj_orders(token, pages_to_pull=10):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (Now working correctly)")
+st.title("Eleganto COG Audit Tool ✅")
 
 uploaded_file = st.file_uploader("Upload Supplier File (.csv or .xlsx)", type=["csv", "xlsx"])
 
@@ -85,6 +85,9 @@ if uploaded_file and st.button("Run Full Comparison"):
             'QTY': 'SupplierItemCount',
             'Total price': 'SupplierTotalPrice'
         }, inplace=True)
+
+        # Always round supplier prices to 2 digits
+        supplier_orders['SupplierTotalPrice'] = supplier_orders['SupplierTotalPrice'].round(2)
 
         st.write(f"✅ Loaded {len(supplier_orders)} supplier orders.")
 
@@ -151,20 +154,18 @@ if uploaded_file and st.button("Run Full Comparison"):
 
         report_df = pd.DataFrame(report)
 
-        total_row = pd.DataFrame({
-            'ShopifyOrderID': ['TOTAL'],
-            'SupplierTotalPrice': [report_df['SupplierTotalPrice'].sum()],
-            'CJOrderAmount': [report_df['CJOrderAmount'].sum()],
-            'PriceDifference': [report_df['PriceDifference'].sum()],
-            'SupplierItemCount': [report_df['SupplierItemCount'].sum()],
-            'CJItemCount': [report_df['CJItemCount'].sum()],
-            'QuantityMatch': ['-']
-        })
+        total_supplier = report_df['SupplierTotalPrice'].sum()
+        total_cj = report_df['CJOrderAmount'].sum()
+        total_saved = total_cj - total_supplier
 
-        final_df = pd.concat([total_row, report_df], ignore_index=True)
+        # ---- Top Summary ----
+        st.header("📊 Total Sum Up Information")
+        st.write(f"✅ Total amount Supplier: **${total_supplier:.2f}**")
+        st.write(f"✅ Total amount CJ: **${total_cj:.2f}**")
+        st.write(f"✅ Total amount saved: **${total_saved:.2f}** (CJ - Supplier)")
 
-        # Summary of supplier more expensive
-        st.header("💰 Supplier More Expensive Summary:")
+        # Summary table for orders where supplier was more expensive
+        st.header("💰 Supplier More Expensive Orders:")
         if supplier_more_expensive_orders:
             more_exp_df = pd.DataFrame(supplier_more_expensive_orders)
             more_exp_sum = more_exp_df['Diff'].sum()
@@ -173,10 +174,11 @@ if uploaded_file and st.button("Run Full Comparison"):
         else:
             st.write("✅ Supplier never more expensive than CJ.")
 
-        # Show full table
-        st.write(final_df)
+        # Show full detailed table
+        st.header("Full Orders Comparison Table")
+        st.write(report_df)
 
-        # Export CSV with your format:
+        # Export CSV in your required format:
         export_df = report_df[['ShopifyOrderID', 'SupplierTotalPrice']].copy()
         export_df['ShopifyOrderID'] = export_df['ShopifyOrderID'].str.replace('#', '').str.strip()
         export_df['Total'] = export_df['SupplierTotalPrice'].map(lambda x: f"{x:.2f}")
