@@ -5,7 +5,6 @@ import requests
 import json
 from datetime import datetime, timedelta
 import time
-from collections import defaultdict
 
 # ---------------------------
 # Your CJ Seller Credentials
@@ -56,24 +55,9 @@ def get_cj_orders(token):
     return response_json['data']['list']
 
 # ---------------------------
-# Get order details from getOrderDetail
-
-def get_cj_order_detail(token, order_id):
-    url = "https://developers.cjdropshipping.com/api2.0/v1/shopping/order/getOrderDetail"
-    headers = {'CJ-Access-Token': token}
-    params = {"orderId": order_id}
-    response = requests.get(url, headers=headers, params=params)
-    response_json = response.json()
-
-    if response_json['code'] != 200:
-        raise Exception(f"Failed to get CJ order detail: {response_json.get('message', 'Unknown error')}")
-
-    return response_json['data']
-
-# ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (FULL PRODUCTION FINAL VERSION 🚀)")
+st.title("Eleganto COG Audit Tool ✅ (FINAL PRODUCTION VERSION 🚀)")
 
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
 
@@ -118,24 +102,7 @@ if uploaded_file and st.button("Run Full Comparison"):
             cj_order = cj_order_map.get(supplier_order_id)
             if cj_order:
                 cj_total = float(cj_order['orderAmount'])
-                cj_items = 0
-
-                order_id = cj_order['orderId']
-                time.sleep(0.2)
-                detail = get_cj_order_detail(token, order_id)
-                product_list = detail.get('productList', [])
-
-                exclude_keywords = ['package', 'box', 'bag', 'pouch', 'storage', 'case', 'gift', 'accessory']
-
-                # ✅ New grouping logic:
-                product_quantities = defaultdict(int)
-                for item in product_list:
-                    product_name = item.get('productName', '').lower()
-                    if not any(kw in product_name for kw in exclude_keywords):
-                        sku = item.get('variantSku', '').lower()
-                        product_quantities[sku] += item.get('quantity', 0)
-
-                cj_items = sum(product_quantities.values())
+                cj_items = int(cj_order.get('orderQuantity', 0))  # ✅ Directly using CJ orderQuantity
 
                 qty_match = 'YES' if cj_items == supplier_items else 'NO'
                 price_diff = supplier_total - cj_total
