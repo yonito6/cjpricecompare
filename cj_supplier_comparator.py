@@ -11,7 +11,7 @@ CJ_EMAIL = "elgantoshop@gmail.com"
 CJ_API_KEY = "7e07bce6c57b4d918da681a3d85d3bed"
 
 # ---------------------------
-# CJ API Authentication (exactly your working code)
+# CJ API Authentication
 
 @st.cache_data(ttl=60*60*24*15)
 def get_cj_access_token():
@@ -33,14 +33,18 @@ def get_cj_access_token():
 # ---------------------------
 # CJ API Order Fetch using GET method
 
-def get_cj_orders(token, start_date, end_date):
+def get_cj_orders(token):
     url = "https://developers.cjdropshipping.com/api2.0/v1/shopping/order/list"
     headers = {'CJ-Access-Token': token}
+
+    # Automatically pull last 30 days:
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=30)
     params = {
         "page": 1,
-        "pageSize": 200,  # Increase pageSize to get more orders
-        "startDate": start_date,
-        "endDate": end_date
+        "pageSize": 200,
+        "startDate": start_date.strftime('%Y-%m-%d 00:00:00'),
+        "endDate": end_date.strftime('%Y-%m-%d 23:59:59')
     }
     response = requests.get(url, headers=headers, params=params)
     response_json = response.json()
@@ -53,19 +57,10 @@ def get_cj_orders(token, start_date, end_date):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (FINAL FULLY FIXED VERSION)")
+st.title("Eleganto COG Audit Tool ✅ (CLEAN FINAL VERSION)")
 
 # Supplier file uploader
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
-
-# Allow selecting date range to pull CJ orders:
-st.write("Select CJ orders time range:")
-
-default_end_date = datetime.now()
-default_start_date = default_end_date - timedelta(days=30)
-
-start_date = st.date_input("Start date", default_start_date, key="start_date").strftime('%Y-%m-%d 00:00:00')
-end_date = st.date_input("End date", default_end_date, key="end_date").strftime('%Y-%m-%d 23:59:59')
 
 if uploaded_file and st.button("Run Full Comparison"):
     try:
@@ -88,12 +83,12 @@ if uploaded_file and st.button("Run Full Comparison"):
 
         st.write(f"✅ Loaded {len(supplier_orders)} supplier orders.")
 
-        # Pull CJ Orders
+        # Pull CJ Orders automatically for last 30 days
         token = get_cj_access_token()
-        cj_orders = get_cj_orders(token, start_date, end_date)
+        cj_orders = get_cj_orders(token)
         st.write(f"✅ Pulled {len(cj_orders)} CJ orders.")
 
-        # Build CJ mapping using correct 'orderNum' field
+        # Build CJ mapping using 'orderNum'
         cj_order_map = {}
         for order in cj_orders:
             order_num = order.get('orderNum', None)
@@ -109,7 +104,7 @@ if uploaded_file and st.button("Run Full Comparison"):
 
             cj_order = cj_order_map.get(supplier_order_id)
             if cj_order:
-                cj_total = float(cj_order['orderAmount'])  # Correct cost comparison
+                cj_total = float(cj_order['orderAmount'])
                 cj_items = 0
                 if 'orderProductList' in cj_order and cj_order['orderProductList']:
                     cj_items = sum(item['orderQuantity'] for item in cj_order['orderProductList'])
