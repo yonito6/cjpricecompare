@@ -1,6 +1,4 @@
 import streamlit as st
-import pandas as pd
-import numpy as np
 import requests
 import json
 
@@ -30,112 +28,40 @@ def get_cj_access_token():
     return token
 
 # ---------------------------
-# CJ API Order Fetch using correct seller API endpoint
+# CJ API Test Call
 
-def get_cj_order(order_id, token):
+def get_cj_orders(token):
     url = "https://developers.cjdropshipping.com/api2.0/shopping/order/list"
     headers = {'CJ-Access-Token': token}
     data = {
         "page": 1,
-        "pageSize": 50,
-        "orderNumber": order_id  # this is your full order number including #
+        "pageSize": 50
     }
     response = requests.post(url, headers=headers, json=data)
     response_json = response.json()
 
-    if response_json['code'] != 200 or response_json['data'] is None or len(response_json['data']['list']) == 0:
-        return None, None
+    if response_json['code'] != 200:
+        raise Exception(f"Failed to get CJ orders: {response_json.get('message', 'Unknown error')}")
 
-    orders = response_json['data']['list']
-    total_amount = float(orders[0]['orderAmount'])
-    item_count = sum(item['orderQuantity'] for item in orders[0]['orderProductList'])
-    return total_amount, item_count
+    return response_json['data']['list']
 
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool v5.1 ✅ Seller API Version")
-st.write("Upload your Supplier CSV file to compare with CJ Dropshipping orders.")
+st.title("CJ API DEBUG TOOL 🔬")
+st.write("We will test your CJ order data to verify ID structure.")
 
-uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
-
-if uploaded_file:
-    supplier_df = pd.read_excel(uploaded_file)
-
-    # Clean and prepare supplier file
-    supplier_df['Name'] = supplier_df['Name'].fillna(method='ffill')
-
-    # Group per order
-    orders = supplier_df.groupby('Name').agg({
-        'Product fee': 'sum',
-        'QTY': 'sum',
-        'Total price': 'first'
-    }).reset_index()
-
-    orders.rename(columns={
-        'Name': 'ShopifyOrderID',
-        'Product fee': 'SupplierProductCost',
-        'QTY': 'SupplierItemCount',
-        'Total price': 'SupplierTotalPrice'
-    }, inplace=True)
-
-    st.write(f"Found {len(orders)} orders in your file.")
-
-    st.write("Connecting to CJ API...")
+if st.button("Run Debug Test"):
     try:
         token = get_cj_access_token()
         st.success("✅ Successfully connected to CJ API.")
+
+        cj_orders = get_cj_orders(token)
+        st.write(f"✅ Found {len(cj_orders)} orders.")
+
+        for idx, order in enumerate(cj_orders):
+            st.write(f"--- ORDER {idx+1} ---")
+            st.json(order)
+
     except Exception as e:
-        st.error(f"Failed to connect to CJ API: {e}")
-        st.stop()
-
-    report = []
-
-    progress_bar = st.progress(0)
-    for idx, row in orders.iterrows():
-        shopify_order_id = row['ShopifyOrderID']
-        supplier_total = row['SupplierTotalPrice']
-        supplier_items = row['SupplierItemCount']
-
-        cj_total, cj_items = get_cj_order(shopify_order_id, token)
-
-        if cj_total is None:
-            cj_total = np.nan
-            cj_items = np.nan
-            qty_match = 'NO DATA'
-        else:
-            qty_match = 'YES' if cj_items == supplier_items else 'NO'
-
-        cost_diff = supplier_total - cj_total if cj_total is not np.nan else np.nan
-
-        report.append({
-            'ShopifyOrderID': shopify_order_id,
-            'SupplierTotalPrice': supplier_total,
-            'CJTotalPrice': cj_total,
-            'CostDifference': cost_diff,
-            'SupplierItemCount': supplier_items,
-            'CJItemCount': cj_items,
-            'QuantityMatch': qty_match
-        })
-
-        progress_bar.progress((idx+1) / len(orders))
-
-    report_df = pd.DataFrame(report)
-
-    # Calculate totals
-    total_row = pd.DataFrame({
-        'ShopifyOrderID': ['TOTAL'],
-        'SupplierTotalPrice': [report_df['SupplierTotalPrice'].sum()],
-        'CJTotalPrice': [report_df['CJTotalPrice'].sum()],
-        'CostDifference': [report_df['CostDifference'].sum()],
-        'SupplierItemCount': [report_df['SupplierItemCount'].sum()],
-        'CJItemCount': [report_df['CJItemCount'].sum()],
-        'QuantityMatch': ['-']
-    })
-
-    final_df = pd.concat([report_df, total_row], ignore_index=True)
-
-    st.write(final_df)
-
-    csv = final_df.to_csv(index=False)
-    st.download_button("Download Full Report CSV", data=csv, file_name="eleganto_cog_audit.csv", mime='text/csv')
+        st.error(f"❌ Failed: {e}")
