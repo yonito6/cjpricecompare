@@ -3,6 +3,7 @@ import pandas as pd
 import numpy as np
 import requests
 import json
+import time
 from datetime import datetime, timedelta
 
 # ---------------------------
@@ -54,7 +55,7 @@ def get_cj_orders(token):
     return response_json['data']['list']
 
 # ---------------------------
-# Get order details (where productList lives!)
+# Get order details (productList)
 
 def get_cj_order_detail(token, order_id):
     url = "https://developers.cjdropshipping.com/api2.0/v1/shopping/order/getOrderDetail"
@@ -115,6 +116,9 @@ if uploaded_file and st.button("Run Full Comparison"):
             if cj_order:
                 cj_total = float(cj_order['orderAmount'])
                 order_id = cj_order['orderId']
+
+                # Add delay to respect QPS limit
+                time.sleep(0.3)
 
                 # Call order detail to get productList
                 detail = get_cj_order_detail(token, order_id)
