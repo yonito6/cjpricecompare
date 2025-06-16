@@ -5,6 +5,7 @@ import requests
 import json
 from datetime import datetime, timedelta
 import time
+from collections import defaultdict
 
 # ---------------------------
 # Your CJ Seller Credentials
@@ -72,7 +73,7 @@ def get_cj_order_detail(token, order_id):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (FINAL FINAL VERSION 🚀)")
+st.title("Eleganto COG Audit Tool ✅ (FULL PRODUCTION FINAL VERSION 🚀)")
 
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
 
@@ -126,11 +127,15 @@ if uploaded_file and st.button("Run Full Comparison"):
 
                 exclude_keywords = ['package', 'box', 'bag', 'pouch', 'storage', 'case', 'gift', 'accessory']
 
-                cj_items = sum(
-                    item.get('quantity', 0)
-                    for item in product_list
-                    if not any(kw in item.get('productName', '').lower() for kw in exclude_keywords)
-                )
+                # ✅ New grouping logic:
+                product_quantities = defaultdict(int)
+                for item in product_list:
+                    product_name = item.get('productName', '').lower()
+                    if not any(kw in product_name for kw in exclude_keywords):
+                        sku = item.get('variantSku', '').lower()
+                        product_quantities[sku] += item.get('quantity', 0)
+
+                cj_items = sum(product_quantities.values())
 
                 qty_match = 'YES' if cj_items == supplier_items else 'NO'
                 price_diff = supplier_total - cj_total
