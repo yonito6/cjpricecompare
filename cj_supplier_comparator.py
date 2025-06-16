@@ -32,7 +32,7 @@ def get_cj_access_token():
     return token
 
 # ---------------------------
-# CJ API Order Fetch using GET method
+# Get order list
 
 def get_cj_orders(token):
     url = "https://developers.cjdropshipping.com/api2.0/v1/shopping/order/list"
@@ -55,9 +55,24 @@ def get_cj_orders(token):
     return response_json['data']['list']
 
 # ---------------------------
+# Get order detail per order
+
+def get_cj_order_detail(token, order_id):
+    url = "https://developers.cjdropshipping.com/api2.0/v1/shopping/order/getOrderDetail"
+    headers = {'CJ-Access-Token': token}
+    params = {"orderId": order_id}
+    response = requests.get(url, headers=headers, params=params)
+    response_json = response.json()
+
+    if response_json['code'] != 200:
+        raise Exception(f"Failed to get CJ order detail: {response_json.get('message', 'Unknown error')}")
+
+    return response_json['data']
+
+# ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (FINAL PRODUCTION VERSION 🚀)")
+st.title("Eleganto COG Audit Tool ✅ (FINAL CJ MATCH VERSION 🚀)")
 
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
 
@@ -85,6 +100,7 @@ if uploaded_file and st.button("Run Full Comparison"):
         cj_orders = get_cj_orders(token)
         st.write(f"✅ Pulled {len(cj_orders)} CJ orders.")
 
+        # Build order map for fast access
         cj_order_map = {}
         for order in cj_orders:
             order_num = order.get('orderNum', None)
@@ -102,10 +118,25 @@ if uploaded_file and st.button("Run Full Comparison"):
             cj_order = cj_order_map.get(supplier_order_id)
             if cj_order:
                 cj_total = float(cj_order['orderAmount'])
-                cj_items = int(cj_order.get('orderQuantity', 0))  # ✅ Directly using CJ orderQuantity
+                order_id = cj_order['orderId']
+
+                # ✅ Now pull order details
+                time.sleep(0.2)
+                detail = get_cj_order_detail(token, order_id)
+                product_list = detail.get('productList', [])
+
+                # ✅ Exclude non-product SKUs by keywords
+                exclude_keywords = ['package', 'box', 'bag', 'pouch', 'storage', 'case', 'gift', 'accessory', 'insert']
+
+                cj_items = sum(
+                    item.get('quantity', 0)
+                    for item in product_list
+                    if not any(kw in item.get('productName', '').lower() for kw in exclude_keywords)
+                )
 
                 qty_match = 'YES' if cj_items == supplier_items else 'NO'
                 price_diff = supplier_total - cj_total
+
             else:
                 cj_total = np.nan
                 cj_items = np.nan
