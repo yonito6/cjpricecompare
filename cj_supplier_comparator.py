@@ -3,12 +3,11 @@ import pandas as pd
 import numpy as np
 import requests
 import json
-import time
 
 # ---------------------------
 # Your CJ Seller Credentials
 CJ_EMAIL = "elgantoshop@gmail.com"
-CJ_API_KEY = "2387ebad3b284dcf9714745e7e91bc65"
+CJ_API_KEY = "7e07bce6c57b4d918da681a3d85d3bed"
 
 # ---------------------------
 # CJ API Authentication
@@ -31,15 +30,15 @@ def get_cj_access_token():
     return token
 
 # ---------------------------
-# CJ API Order Fetch
+# CJ API Order Fetch using correct seller API endpoint
 
 def get_cj_order(order_id, token):
-    url = "https://developers.cjdropshipping.com/api2.0/open/getOrderList"
+    url = "https://developers.cjdropshipping.com/api2.0/shopping/order/list"
     headers = {'CJ-Access-Token': token}
     data = {
         "page": 1,
         "pageSize": 50,
-        "shopifyOrderId": order_id  # Use full order ID with #
+        "orderNumber": order_id  # this is your full order number including #
     }
     response = requests.post(url, headers=headers, json=data)
     response_json = response.json()
@@ -49,13 +48,13 @@ def get_cj_order(order_id, token):
 
     orders = response_json['data']['list']
     total_amount = float(orders[0]['orderAmount'])
-    item_count = sum(item['orderQuantity'] for item in orders[0]['orderProductVos'])
+    item_count = sum(item['orderQuantity'] for item in orders[0]['orderProductList'])
     return total_amount, item_count
 
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool v5.0 ✅")
+st.title("Eleganto COG Audit Tool v5.1 ✅ Seller API Version")
 st.write("Upload your Supplier CSV file to compare with CJ Dropshipping orders.")
 
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
