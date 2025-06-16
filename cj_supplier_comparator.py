@@ -53,14 +53,19 @@ def get_cj_order_by_number(token, order_num):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (Optimized Accurate Version)")
+st.title("Eleganto COG Audit Tool ✅ (FINAL STABLE VERSION)")
 
 # Supplier file uploader
-uploaded_file = st.file_uploader("Upload Supplier CSV (.csv)", type=["csv"])
+uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx or .csv)", type=["xlsx", "csv"])
 
 if uploaded_file and st.button("Run Full Comparison"):
     try:
-        supplier_df = pd.read_csv(uploaded_file)
+        # Auto-detect file format
+        if uploaded_file.name.endswith('.xlsx'):
+            supplier_df = pd.read_excel(uploaded_file)
+        else:
+            supplier_df = pd.read_csv(uploaded_file)
+
         supplier_df['Name'] = supplier_df['Name'].fillna(method='ffill')
 
         supplier_orders = supplier_df.groupby('Name').agg({
@@ -95,11 +100,6 @@ if uploaded_file and st.button("Run Full Comparison"):
             cj_order = get_cj_order_by_number(token, supplier_order_id)
             if cj_order:
                 cj_total = float(cj_order.get('orderAmount', 0))
-                cj_items = 0
-                if 'orderProductList' in cj_order and cj_order['orderProductList']:
-                    cj_items = sum(item.get('orderQuantity', 0) for item in cj_order['orderProductList'])
-                qty_match = 'YES' if cj_items == supplier_items else 'NO'
-                price_diff = supplier_total - cj_total
 
                 if cj_total > supplier_total:
                     more_expensive.append({
@@ -108,24 +108,17 @@ if uploaded_file and st.button("Run Full Comparison"):
                     })
             else:
                 cj_total = np.nan
-                cj_items = np.nan
-                qty_match = 'NO DATA'
-                price_diff = np.nan
 
             report.append({
                 'OrderID': supplier_order_id,
-                'Total': supplier_total,
-                'SupplierItemCount': supplier_items,
-                'CJOrderAmount': cj_total,
-                'CJItemCount': cj_items,
-                'QuantityMatch': qty_match
+                'Total': supplier_total
             })
 
             progress_bar.progress(idx / len(supplier_orders))
 
         report_df = pd.DataFrame(report)
 
-        # Show orders where CJ is more expensive
+        # Show CJ more expensive summary
         if more_expensive:
             st.write("⚠️ CJ more expensive orders:")
             st.write(pd.DataFrame(more_expensive))
@@ -133,8 +126,7 @@ if uploaded_file and st.button("Run Full Comparison"):
             st.write("✅ All orders cheaper or equal on CJ.")
 
         # Export CSV in requested format
-        export_df = report_df[['OrderID', 'Total']]
-        csv = export_df.to_csv(index=False)
+        csv = report_df.to_csv(index=False)
         st.download_button("Download Final Report CSV", data=csv, file_name="eleganto_cog_final.csv", mime='text/csv')
 
     except Exception as e:
