@@ -32,40 +32,34 @@ def get_cj_access_token():
     return token
 
 # ---------------------------
-# Query CJ Order by OrderNum using List API
+# CJ API Order Fetch using paging
 
-def get_cj_orders_by_orderNums(token, order_nums):
+def get_all_cj_orders(token, pages_to_pull=10):
     url = "https://developers.cjdropshipping.com/api2.0/v1/shopping/order/list"
     headers = {'CJ-Access-Token': token}
-    cj_order_map = {}
+    cj_orders = []
 
-    # batch the request in chunks of 20 to avoid CJ API limits
-    batch_size = 20
-    for i in range(0, len(order_nums), batch_size):
-        batch = order_nums[i:i+batch_size]
+    for page in range(1, pages_to_pull+1):
         params = {
-            "page": 1,
-            "pageSize": 50,
-            "orderIds": ','.join(batch)
+            "pageNum": page,
+            "pageSize": 50
         }
         response = requests.get(url, headers=headers, params=params)
         response_json = response.json()
 
         if response_json['code'] == 200:
-            orders = response_json['data']['list']
-            for order in orders:
-                order_num = order.get('orderNum', None)
-                if order_num:
-                    cj_order_map[str(order_num).replace('#', '').strip()] = order
+            cj_orders += response_json['data']['list']
+        else:
+            break
 
-        time.sleep(0.3)  # avoid flooding
+        time.sleep(0.2)
 
-    return cj_order_map
+    return cj_orders
 
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (Supplier More Expensive Version)")
+st.title("Eleganto COG Audit Tool ✅ (Now working correctly)")
 
 uploaded_file = st.file_uploader("Upload Supplier File (.csv or .xlsx)", type=["csv", "xlsx"])
 
@@ -95,9 +89,18 @@ if uploaded_file and st.button("Run Full Comparison"):
         st.write(f"✅ Loaded {len(supplier_orders)} supplier orders.")
 
         token = get_cj_access_token()
+        cj_orders_all = get_all_cj_orders(token, pages_to_pull=15)  # pull ~750 orders
+
+        cj_order_map = {}
+        for order in cj_orders_all:
+            order_num = order.get('orderNum', None)
+            if order_num:
+                cj_order_map[str(order_num).replace('#', '').strip()] = order
 
         supplier_order_ids = [str(x).replace('#', '').strip() for x in supplier_orders['ShopifyOrderID']]
-        cj_orders = get_cj_orders_by_orderNums(token, supplier_order_ids)
+
+        # Keep only CJ orders matching supplier file
+        cj_orders = {order_id: cj_order_map[order_id] for order_id in supplier_order_ids if order_id in cj_order_map}
         st.write(f"✅ Pulled {len(cj_orders)} matching CJ orders.")
 
         report = []
@@ -142,7 +145,7 @@ if uploaded_file and st.button("Run Full Comparison"):
                 'QuantityMatch': qty_match
             })
 
-            time.sleep(0.1)
+            time.sleep(0.05)
 
         progress.empty()
 
@@ -160,7 +163,7 @@ if uploaded_file and st.button("Run Full Comparison"):
 
         final_df = pd.concat([total_row, report_df], ignore_index=True)
 
-        # Show total extra paid to supplier
+        # Summary of supplier more expensive
         st.header("💰 Supplier More Expensive Summary:")
         if supplier_more_expensive_orders:
             more_exp_df = pd.DataFrame(supplier_more_expensive_orders)
