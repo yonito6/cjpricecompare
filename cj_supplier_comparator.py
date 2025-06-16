@@ -8,7 +8,7 @@ import time
 # ---------------------------
 # Your CJ Seller Credentials
 CJ_EMAIL = "elgantoshop@gmail.com"
-CJ_API_KEY = "057bacfa2f84484c8eac290987968153"
+CJ_API_KEY = "2387ebad3b284dcf9714745e7e91bc65"
 
 # ---------------------------
 # CJ API Authentication
