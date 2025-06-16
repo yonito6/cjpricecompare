@@ -72,7 +72,7 @@ def get_cj_order_detail(token, order_id):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (REAL CJ QUANTITY VERSION 🚀)")
+st.title("Eleganto COG Audit Tool ✅ (Hybrid Quantity Version 🚀)")
 
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
 
@@ -122,13 +122,14 @@ if uploaded_file and st.button("Run Full Comparison"):
                 time.sleep(0.2)
                 detail = get_cj_order_detail(token, order_id)
 
-                # ✅ Now use productInfoList for real quantity:
+                # First try productInfoList (preferred)
                 product_info_list = detail.get('productInfoList', [])
-
-                cj_items = sum(
-                    item.get('quantity', 0)
-                    for item in product_info_list
-                )
+                if product_info_list:
+                    cj_items = sum(item.get('quantity', 0) for item in product_info_list)
+                else:
+                    # Fallback to productList if productInfoList not available
+                    product_list = detail.get('productList', [])
+                    cj_items = sum(item.get('quantity', 0) for item in product_list)
 
                 qty_match = 'YES' if cj_items == supplier_items else 'NO'
                 price_diff = supplier_total - cj_total
