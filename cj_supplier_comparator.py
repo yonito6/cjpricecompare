@@ -72,7 +72,7 @@ def get_cj_order_detail(token, order_id):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (FINAL - FILTERED PACKAGING)")
+st.title("Eleganto COG Audit Tool ✅ (FINAL FINAL VERSION 🚀)")
 
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
 
@@ -124,7 +124,7 @@ if uploaded_file and st.button("Run Full Comparison"):
                 detail = get_cj_order_detail(token, order_id)
                 product_list = detail.get('productList', [])
 
-                exclude_keywords = ['package', 'box', 'bag', 'pouch', 'storage', 'case']
+                exclude_keywords = ['package', 'box', 'bag', 'pouch', 'storage', 'case', 'gift', 'accessory']
 
                 cj_items = sum(
                     item.get('quantity', 0)
