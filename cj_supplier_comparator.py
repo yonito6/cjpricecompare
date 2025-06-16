@@ -31,23 +31,33 @@ def get_cj_access_token():
     return token
 
 # ---------------------------
-# CJ API Order Detail Fetch
+# CJ API Order Fetch using GET method
 
-def get_cj_order_detail(token, order_id):
-    url = f"https://developers.cjdropshipping.com/api2.0/v1/shopping/order/getOrderDetail?orderId={order_id}"
+def get_cj_orders(token):
+    url = "https://developers.cjdropshipping.com/api2.0/v1/shopping/order/list"
     headers = {'CJ-Access-Token': token}
-    response = requests.get(url, headers=headers)
+
+    # Automatically pull last 30 days:
+    end_date = datetime.now()
+    start_date = end_date - timedelta(days=30)
+    params = {
+        "page": 1,
+        "pageSize": 200,
+        "startDate": start_date.strftime('%Y-%m-%d 00:00:00'),
+        "endDate": end_date.strftime('%Y-%m-%d 23:59:59')
+    }
+    response = requests.get(url, headers=headers, params=params)
     response_json = response.json()
 
     if response_json['code'] != 200:
-        return None
+        raise Exception(f"Failed to get CJ orders: {response_json.get('message', 'Unknown error')}")
 
-    return response_json['data']
+    return response_json['data']['list']
 
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (Stable Version Without tqdm)")
+st.title("Eleganto COG Audit Tool ✅ (CLEAN FINAL VERSION)")
 
 # Supplier file uploader
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
@@ -73,26 +83,19 @@ if uploaded_file and st.button("Run Full Comparison"):
 
         st.write(f"✅ Loaded {len(supplier_orders)} supplier orders.")
 
-        # Extract order numbers to fetch
-        order_nums = supplier_orders['ShopifyOrderID'].astype(str).str.replace('#', '').str.strip().tolist()
-
+        # Pull CJ Orders automatically for last 30 days
         token = get_cj_access_token()
+        cj_orders = get_cj_orders(token)
+        st.write(f"✅ Pulled {len(cj_orders)} CJ orders.")
 
-        # Build CJ mapping by querying details for each order
+        # Build CJ mapping using 'orderNum'
         cj_order_map = {}
-        for order_num in order_nums:
-            search_url = "https://developers.cjdropshipping.com/api2.0/v1/shopping/order/list"
-            headers = {'CJ-Access-Token': token}
-            params = {"orderIds": [order_num], "pageNum": 1, "pageSize": 10}
-            response = requests.get(search_url, headers=headers, params=params)
-            data = response.json()
+        for order in cj_orders:
+            order_num = order.get('orderNum', None)
+            if order_num:
+                cj_order_map[str(order_num).replace('#', '').strip()] = order
 
-            if data['code'] == 200 and data['data']['list']:
-                cj_order = data['data']['list'][0]
-                cj_order_map[order_num] = cj_order
-            else:
-                cj_order_map[order_num] = None
-
+        # Build comparison report
         report = []
         for idx, row in supplier_orders.iterrows():
             supplier_order_id = str(row['ShopifyOrderID']).replace('#', '').strip()
@@ -101,14 +104,10 @@ if uploaded_file and st.button("Run Full Comparison"):
 
             cj_order = cj_order_map.get(supplier_order_id)
             if cj_order:
-                cj_total = float(cj_order.get('orderAmount', 0))
+                cj_total = float(cj_order['orderAmount'])
                 cj_items = 0
-
-                # Call the detailed order to extract proper quantity from productList
-                detailed = get_cj_order_detail(token, cj_order['orderId'])
-                if detailed and 'productList' in detailed and detailed['productList']:
-                    cj_items = sum(item.get('quantity', 0) for item in detailed['productList'])
-
+                if 'orderProductList' in cj_order and cj_order['orderProductList']:
+                    cj_items = sum(item['orderQuantity'] for item in cj_order['orderProductList'])
                 qty_match = 'YES' if cj_items == supplier_items else 'NO'
                 price_diff = supplier_total - cj_total
             else:
