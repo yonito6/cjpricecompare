@@ -71,7 +71,7 @@ def get_cj_order_detail(token, order_id):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (FINAL FULL WORKING VERSION 🚀)")
+st.title("Eleganto COG Audit Tool ✅ (FINAL PRODUCTION VERSION 🚀)")
 
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
 
