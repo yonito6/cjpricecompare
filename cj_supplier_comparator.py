@@ -162,7 +162,7 @@ if uploaded_file and st.button("Run Full Comparison"):
         st.header("📊 Total Sum Up Information")
         st.write(f"✅ Total amount Supplier: **${total_supplier:.2f}**")
         st.write(f"✅ Total amount CJ: **${total_cj:.2f}**")
-        st.write(f"✅ Total amount saved: **${total_saved:.2f}** (CJ - Supplier)")
+        st.write(f"✅ Total amount saved: **${total_saved:.2f}** (Private supplier)")
 
         # Summary table for orders where supplier was more expensive
         st.header("💰 Supplier More Expensive Orders:")
