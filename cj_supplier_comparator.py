@@ -4,6 +4,7 @@ import numpy as np
 import requests
 import json
 from datetime import datetime, timedelta
+import time
 
 # ---------------------------
 # Your CJ Seller Credentials
@@ -31,41 +32,35 @@ def get_cj_access_token():
     return token
 
 # ---------------------------
-# CJ API Order Fetch using GET method
+# CJ API Order Fetch for Specific Order
 
-def get_cj_orders(token):
+def get_cj_order_by_number(token, order_num):
     url = "https://developers.cjdropshipping.com/api2.0/v1/shopping/order/list"
     headers = {'CJ-Access-Token': token}
-
-    # Automatically pull last 30 days:
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=30)
     params = {
-        "page": 1,
-        "pageSize": 200,
-        "startDate": start_date.strftime('%Y-%m-%d 00:00:00'),
-        "endDate": end_date.strftime('%Y-%m-%d 23:59:59')
+        "orderIds": [order_num],
+        "pageNum": 1,
+        "pageSize": 10
     }
     response = requests.get(url, headers=headers, params=params)
     response_json = response.json()
 
-    if response_json['code'] != 200:
-        raise Exception(f"Failed to get CJ orders: {response_json.get('message', 'Unknown error')}")
+    if response_json['code'] != 200 or not response_json['data']['list']:
+        return None
 
-    return response_json['data']['list']
+    return response_json['data']['list'][0]
 
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (CLEAN FINAL VERSION)")
+st.title("Eleganto COG Audit Tool ✅ (Optimized Accurate Version)")
 
 # Supplier file uploader
-uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
+uploaded_file = st.file_uploader("Upload Supplier CSV (.csv)", type=["csv"])
 
 if uploaded_file and st.button("Run Full Comparison"):
     try:
-        # Process supplier file
-        supplier_df = pd.read_excel(uploaded_file)
+        supplier_df = pd.read_csv(uploaded_file)
         supplier_df['Name'] = supplier_df['Name'].fillna(method='ffill')
 
         supplier_orders = supplier_df.groupby('Name').agg({
@@ -83,33 +78,34 @@ if uploaded_file and st.button("Run Full Comparison"):
 
         st.write(f"✅ Loaded {len(supplier_orders)} supplier orders.")
 
-        # Pull CJ Orders automatically for last 30 days
+        # Extract list of order numbers from supplier file
+        order_nums = supplier_orders['ShopifyOrderID'].astype(str).str.replace('#', '').str.strip().tolist()
+
         token = get_cj_access_token()
-        cj_orders = get_cj_orders(token)
-        st.write(f"✅ Pulled {len(cj_orders)} CJ orders.")
 
-        # Build CJ mapping using 'orderNum'
-        cj_order_map = {}
-        for order in cj_orders:
-            order_num = order.get('orderNum', None)
-            if order_num:
-                cj_order_map[str(order_num).replace('#', '').strip()] = order
-
-        # Build comparison report
         report = []
-        for idx, row in supplier_orders.iterrows():
-            supplier_order_id = str(row['ShopifyOrderID']).replace('#', '').strip()
-            supplier_total = row['SupplierTotalPrice']
-            supplier_items = row['SupplierItemCount']
+        more_expensive = []
 
-            cj_order = cj_order_map.get(supplier_order_id)
+        progress_bar = st.progress(0)
+        for idx, row in enumerate(supplier_orders.itertuples(), 1):
+            supplier_order_id = str(row.ShopifyOrderID).replace('#', '').strip()
+            supplier_total = row.SupplierTotalPrice
+            supplier_items = row.SupplierItemCount
+
+            cj_order = get_cj_order_by_number(token, supplier_order_id)
             if cj_order:
-                cj_total = float(cj_order['orderAmount'])
+                cj_total = float(cj_order.get('orderAmount', 0))
                 cj_items = 0
                 if 'orderProductList' in cj_order and cj_order['orderProductList']:
-                    cj_items = sum(item['orderQuantity'] for item in cj_order['orderProductList'])
+                    cj_items = sum(item.get('orderQuantity', 0) for item in cj_order['orderProductList'])
                 qty_match = 'YES' if cj_items == supplier_items else 'NO'
                 price_diff = supplier_total - cj_total
+
+                if cj_total > supplier_total:
+                    more_expensive.append({
+                        "OrderID": supplier_order_id,
+                        "Difference": round(cj_total - supplier_total, 2)
+                    })
             else:
                 cj_total = np.nan
                 cj_items = np.nan
@@ -117,34 +113,29 @@ if uploaded_file and st.button("Run Full Comparison"):
                 price_diff = np.nan
 
             report.append({
-                'ShopifyOrderID': supplier_order_id,
-                'SupplierTotalPrice': supplier_total,
-                'CJOrderAmount': cj_total,
-                'PriceDifference': price_diff,
+                'OrderID': supplier_order_id,
+                'Total': supplier_total,
                 'SupplierItemCount': supplier_items,
+                'CJOrderAmount': cj_total,
                 'CJItemCount': cj_items,
                 'QuantityMatch': qty_match
             })
 
+            progress_bar.progress(idx / len(supplier_orders))
+
         report_df = pd.DataFrame(report)
 
-        # Add total summary row
-        total_row = pd.DataFrame({
-            'ShopifyOrderID': ['TOTAL'],
-            'SupplierTotalPrice': [report_df['SupplierTotalPrice'].sum()],
-            'CJOrderAmount': [report_df['CJOrderAmount'].sum()],
-            'PriceDifference': [report_df['PriceDifference'].sum()],
-            'SupplierItemCount': [report_df['SupplierItemCount'].sum()],
-            'CJItemCount': [report_df['CJItemCount'].sum()],
-            'QuantityMatch': ['-']
-        })
+        # Show orders where CJ is more expensive
+        if more_expensive:
+            st.write("⚠️ CJ more expensive orders:")
+            st.write(pd.DataFrame(more_expensive))
+        else:
+            st.write("✅ All orders cheaper or equal on CJ.")
 
-        final_df = pd.concat([report_df, total_row], ignore_index=True)
-
-        st.write(final_df)
-
-        csv = final_df.to_csv(index=False)
-        st.download_button("Download Full Report CSV", data=csv, file_name="eleganto_cog_audit.csv", mime='text/csv')
+        # Export CSV in requested format
+        export_df = report_df[['OrderID', 'Total']]
+        csv = export_df.to_csv(index=False)
+        st.download_button("Download Final Report CSV", data=csv, file_name="eleganto_cog_final.csv", mime='text/csv')
 
     except Exception as e:
         st.error(f"❌ Failed: {e}")
