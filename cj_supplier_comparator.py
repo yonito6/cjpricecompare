@@ -32,32 +32,40 @@ def get_cj_access_token():
     return token
 
 # ---------------------------
-# CJ API Order Fetch using LIST (as before, the correct way)
+# Query CJ Order by OrderNum using List API
 
-def get_cj_orders(token):
+def get_cj_orders_by_orderNums(token, order_nums):
     url = "https://developers.cjdropshipping.com/api2.0/v1/shopping/order/list"
     headers = {'CJ-Access-Token': token}
+    cj_order_map = {}
 
-    end_date = datetime.now()
-    start_date = end_date - timedelta(days=30)
-    params = {
-        "page": 1,
-        "pageSize": 200,
-        "startDate": start_date.strftime('%Y-%m-%d 00:00:00'),
-        "endDate": end_date.strftime('%Y-%m-%d 23:59:59')
-    }
-    response = requests.get(url, headers=headers, params=params)
-    response_json = response.json()
+    # batch the request in chunks of 20 to avoid CJ API limits
+    batch_size = 20
+    for i in range(0, len(order_nums), batch_size):
+        batch = order_nums[i:i+batch_size]
+        params = {
+            "page": 1,
+            "pageSize": 50,
+            "orderIds": ','.join(batch)
+        }
+        response = requests.get(url, headers=headers, params=params)
+        response_json = response.json()
 
-    if response_json['code'] != 200:
-        raise Exception(f"Failed to get CJ orders: {response_json.get('message', 'Unknown error')}")
+        if response_json['code'] == 200:
+            orders = response_json['data']['list']
+            for order in orders:
+                order_num = order.get('orderNum', None)
+                if order_num:
+                    cj_order_map[str(order_num).replace('#', '').strip()] = order
 
-    return response_json['data']['list']
+        time.sleep(0.3)  # avoid flooding
+
+    return cj_order_map
 
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (FULLY FIXED)")
+st.title("Eleganto COG Audit Tool ✅ (Supplier More Expensive Version)")
 
 uploaded_file = st.file_uploader("Upload Supplier File (.csv or .xlsx)", type=["csv", "xlsx"])
 
@@ -87,17 +95,13 @@ if uploaded_file and st.button("Run Full Comparison"):
         st.write(f"✅ Loaded {len(supplier_orders)} supplier orders.")
 
         token = get_cj_access_token()
-        cj_orders = get_cj_orders(token)
-        st.write(f"✅ Pulled {len(cj_orders)} CJ orders.")
 
-        cj_order_map = {}
-        for order in cj_orders:
-            order_num = order.get('orderNum', None)
-            if order_num:
-                cj_order_map[str(order_num).replace('#', '').strip()] = order
+        supplier_order_ids = [str(x).replace('#', '').strip() for x in supplier_orders['ShopifyOrderID']]
+        cj_orders = get_cj_orders_by_orderNums(token, supplier_order_ids)
+        st.write(f"✅ Pulled {len(cj_orders)} matching CJ orders.")
 
         report = []
-        cj_more_expensive_orders = []
+        supplier_more_expensive_orders = []
 
         progress = st.progress(0)
         for idx, row in supplier_orders.iterrows():
@@ -107,7 +111,7 @@ if uploaded_file and st.button("Run Full Comparison"):
             supplier_total = row['SupplierTotalPrice']
             supplier_items = row['SupplierItemCount']
 
-            cj_order = cj_order_map.get(supplier_order_id)
+            cj_order = cj_orders.get(supplier_order_id)
             if cj_order:
                 cj_total = float(cj_order.get('orderAmount', 0))
                 cj_items = 0
@@ -116,10 +120,10 @@ if uploaded_file and st.button("Run Full Comparison"):
                 qty_match = 'YES' if cj_items == supplier_items else 'NO'
                 price_diff = supplier_total - cj_total
 
-                if cj_total > supplier_total:
-                    cj_more_expensive_orders.append({
+                if supplier_total > cj_total:
+                    supplier_more_expensive_orders.append({
                         'OrderID': supplier_order_id,
-                        'Diff': round(cj_total - supplier_total, 2)
+                        'Diff': round(supplier_total - cj_total, 2)
                     })
 
             else:
@@ -156,18 +160,20 @@ if uploaded_file and st.button("Run Full Comparison"):
 
         final_df = pd.concat([total_row, report_df], ignore_index=True)
 
-        st.write(final_df)
-
-        if cj_more_expensive_orders:
-            st.subheader("💰 CJ Orders More Expensive Summary:")
-            more_exp_df = pd.DataFrame(cj_more_expensive_orders)
+        # Show total extra paid to supplier
+        st.header("💰 Supplier More Expensive Summary:")
+        if supplier_more_expensive_orders:
+            more_exp_df = pd.DataFrame(supplier_more_expensive_orders)
             more_exp_sum = more_exp_df['Diff'].sum()
-            st.write(f"Total extra paid to CJ: **${more_exp_sum:.2f}**")
+            st.write(f"Total extra paid to supplier: **${more_exp_sum:.2f}**")
             st.write(more_exp_df)
         else:
-            st.write("✅ No orders where CJ was more expensive.")
+            st.write("✅ Supplier never more expensive than CJ.")
 
-        # Export CSV with your requested format:
+        # Show full table
+        st.write(final_df)
+
+        # Export CSV with your format:
         export_df = report_df[['ShopifyOrderID', 'SupplierTotalPrice']].copy()
         export_df['ShopifyOrderID'] = export_df['ShopifyOrderID'].str.replace('#', '').str.strip()
         export_df['Total'] = export_df['SupplierTotalPrice'].map(lambda x: f"{x:.2f}")
