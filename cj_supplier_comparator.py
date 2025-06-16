@@ -72,7 +72,7 @@ def get_cj_order_detail(token, order_id):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (DEBUG VERSION FOR ORDER 2307)")
+st.title("Eleganto COG Audit Tool ✅ (FINAL BUNDLE-FIXED VERSION 🚀)")
 
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
 
@@ -111,11 +111,6 @@ if uploaded_file and st.button("Run Full Comparison"):
 
         for idx, row in supplier_orders.iterrows():
             supplier_order_id = str(row['ShopifyOrderID']).replace('#', '').strip()
-
-            # ✅ DEBUGGING: focus on 2307
-            if supplier_order_id == "2307":
-                st.warning(f"⚠️ DEBUG: We are inspecting order {supplier_order_id}")
-
             supplier_total = row['SupplierTotalPrice']
             supplier_items = row['SupplierItemCount']
 
@@ -128,17 +123,15 @@ if uploaded_file and st.button("Run Full Comparison"):
                 detail = get_cj_order_detail(token, order_id)
                 product_list = detail.get('productList', [])
 
-                # ✅ Print the full raw productList for 2307:
-                if supplier_order_id == "2307":
-                    st.subheader("🚨 Raw CJ productList for Order 2307:")
-                    st.json(product_list)
-
                 exclude_keywords = ['package', 'box', 'bag', 'pouch', 'storage', 'case', 'gift', 'accessory', 'insert']
 
                 cj_items = sum(
                     item.get('quantity', 0)
                     for item in product_list
-                    if not any(kw in item.get('productName', '').lower() for kw in exclude_keywords)
+                    if (
+                        not any(kw in item.get('productName', '').lower() for kw in exclude_keywords)
+                        and item.get('bundleProducts') is None
+                    )
                 )
 
                 qty_match = 'YES' if cj_items == supplier_items else 'NO'
