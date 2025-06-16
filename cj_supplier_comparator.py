@@ -53,7 +53,7 @@ def get_cj_order_by_number(token, order_num):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (FINAL STABLE VERSION)")
+st.title("Eleganto COG Audit Tool ✅ (FULL FIXED VERSION WITH PROGRESS + DIFFERENCE REPORT)")
 
 # Supplier file uploader
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx or .csv)", type=["xlsx", "csv"])
@@ -104,6 +104,8 @@ if uploaded_file and st.button("Run Full Comparison"):
                 if cj_total > supplier_total:
                     more_expensive.append({
                         "OrderID": supplier_order_id,
+                        "CJ_Price": round(cj_total, 2),
+                        "Supplier_Price": round(supplier_total, 2),
                         "Difference": round(cj_total - supplier_total, 2)
                     })
             else:
@@ -115,13 +117,18 @@ if uploaded_file and st.button("Run Full Comparison"):
             })
 
             progress_bar.progress(idx / len(supplier_orders))
+            time.sleep(0.05)  # to show smoother progress
 
         report_df = pd.DataFrame(report)
 
         # Show CJ more expensive summary
         if more_expensive:
+            expensive_df = pd.DataFrame(more_expensive)
             st.write("⚠️ CJ more expensive orders:")
-            st.write(pd.DataFrame(more_expensive))
+            st.dataframe(expensive_df)
+
+            total_overpaid = expensive_df['Difference'].sum()
+            st.write(f"💰 **Total extra cost on CJ: ${total_overpaid:.2f}**")
         else:
             st.write("✅ All orders cheaper or equal on CJ.")
 
