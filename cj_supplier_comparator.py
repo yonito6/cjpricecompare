@@ -57,7 +57,7 @@ def get_cj_orders(token):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (FULL FINAL VERSION)")
+st.title("Eleganto COG Audit Tool ✅ (FINAL PRODUCTION VERSION)")
 
 # Supplier file uploader
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
@@ -105,9 +105,7 @@ if uploaded_file and st.button("Run Full Comparison"):
             cj_order = cj_order_map.get(supplier_order_id)
             if cj_order:
                 cj_total = float(cj_order['orderAmount'])
-                cj_items = 0
-                if 'orderProductList' in cj_order and cj_order['orderProductList']:
-                    cj_items = sum(item['quantity'] for item in cj_order['orderProductList'])
+                cj_items = cj_order.get('quantity', 0)  # <-- THIS IS THE FINAL FIX
                 qty_match = 'YES' if cj_items == supplier_items else 'NO'
                 price_diff = supplier_total - cj_total
             else:
