@@ -72,7 +72,7 @@ def get_cj_order_detail(token, order_id):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (FINAL PRODUCTION VERSION 🚀)")
+st.title("Eleganto COG Audit Tool ✅ (FINAL BUNDLE FIX VERSION 🚀)")
 
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
 
@@ -117,13 +117,19 @@ if uploaded_file and st.button("Run Full Comparison"):
                 cj_total = float(cj_order['orderAmount'])
                 order_id = cj_order['orderId']
 
-                # Add delay to respect QPS limit
-                time.sleep(0.3)
+                time.sleep(0.3)  # prevent hitting rate limit
 
-                # Call order detail to get productList
                 detail = get_cj_order_detail(token, order_id)
                 product_list = detail.get('productList', [])
-                cj_items = sum(item.get('quantity', 0) for item in product_list)
+
+                # Apply bundle filtering logic here
+                cj_items = 0
+                for item in product_list:
+                    product_name = item.get('productName', '').lower()
+                    qty = item.get('quantity', 0)
+
+                    if not any(keyword in product_name for keyword in ['case', 'box', 'storage']):
+                        cj_items += qty
 
                 qty_match = 'YES' if cj_items == supplier_items else 'NO'
                 price_diff = supplier_total - cj_total
