@@ -72,7 +72,7 @@ def get_cj_order_detail(token, order_id):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (FINAL CJ MATCH VERSION 🚀)")
+st.title("Eleganto COG Audit Tool ✅ (DEBUG VERSION FOR ORDER 2307)")
 
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
 
@@ -100,7 +100,6 @@ if uploaded_file and st.button("Run Full Comparison"):
         cj_orders = get_cj_orders(token)
         st.write(f"✅ Pulled {len(cj_orders)} CJ orders.")
 
-        # Build order map for fast access
         cj_order_map = {}
         for order in cj_orders:
             order_num = order.get('orderNum', None)
@@ -112,6 +111,11 @@ if uploaded_file and st.button("Run Full Comparison"):
 
         for idx, row in supplier_orders.iterrows():
             supplier_order_id = str(row['ShopifyOrderID']).replace('#', '').strip()
+
+            # ✅ DEBUGGING: focus on 2307
+            if supplier_order_id == "2307":
+                st.warning(f"⚠️ DEBUG: We are inspecting order {supplier_order_id}")
+
             supplier_total = row['SupplierTotalPrice']
             supplier_items = row['SupplierItemCount']
 
@@ -120,12 +124,15 @@ if uploaded_file and st.button("Run Full Comparison"):
                 cj_total = float(cj_order['orderAmount'])
                 order_id = cj_order['orderId']
 
-                # ✅ Now pull order details
                 time.sleep(0.2)
                 detail = get_cj_order_detail(token, order_id)
                 product_list = detail.get('productList', [])
 
-                # ✅ Exclude non-product SKUs by keywords
+                # ✅ Print the full raw productList for 2307:
+                if supplier_order_id == "2307":
+                    st.subheader("🚨 Raw CJ productList for Order 2307:")
+                    st.json(product_list)
+
                 exclude_keywords = ['package', 'box', 'bag', 'pouch', 'storage', 'case', 'gift', 'accessory', 'insert']
 
                 cj_items = sum(
