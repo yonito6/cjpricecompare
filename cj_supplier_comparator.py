@@ -11,7 +11,7 @@ CJ_EMAIL = "elgantoshop@gmail.com"
 CJ_API_KEY = "7e07bce6c57b4d918da681a3d85d3bed"
 
 # ---------------------------
-# CJ API Authentication
+# CJ API Authentication (fully working)
 
 @st.cache_data(ttl=60*60*24*15)
 def get_cj_access_token():
@@ -31,14 +31,14 @@ def get_cj_access_token():
     return token
 
 # ---------------------------
-# CJ API Order Fetch using GET method (the one that worked!)
+# CJ API Order Fetch (fully working GET method from your version)
 
 def get_cj_orders(token, start_date, end_date):
     url = "https://developers.cjdropshipping.com/api2.0/v1/shopping/order/list"
     headers = {'CJ-Access-Token': token}
     params = {
         "page": 1,
-        "pageSize": 100,
+        "pageSize": 200,  # pull more orders per call
         "startDate": start_date,
         "endDate": end_date
     }
@@ -53,7 +53,7 @@ def get_cj_orders(token, start_date, end_date):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Full Audit Tool - FINAL ✅")
+st.title("Eleganto Final COG Audit Tool ✅ (CJ working version)")
 
 # Supplier file uploader
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
@@ -88,17 +88,16 @@ if uploaded_file and st.button("Run Full Comparison"):
 
         st.write(f"✅ Loaded {len(supplier_orders)} supplier orders.")
 
-        # Get CJ orders
+        # Pull CJ Orders using your exact fully working code
         token = get_cj_access_token()
         cj_orders = get_cj_orders(token, start_date, end_date)
         st.write(f"✅ Pulled {len(cj_orders)} CJ orders.")
 
-        # Build CJ mapping using thirdOrderId
+        # Build CJ mapping using thirdOrderId (Shopify Order ID)
         cj_order_map = {}
         for order in cj_orders:
             third_order_id = order.get('thirdOrderId', None)
             if third_order_id:
-                # strip "#" if exists on supplier file
                 cj_order_map[str(third_order_id).replace('#', '').strip()] = order
 
         # Build comparison report
@@ -110,7 +109,7 @@ if uploaded_file and st.button("Run Full Comparison"):
 
             cj_order = cj_order_map.get(supplier_order_id)
             if cj_order:
-                cj_total = float(cj_order['orderAmount'])
+                cj_total = float(cj_order['orderAmount'])  # This is the final COG we compare!
                 cj_items = sum(item['orderQuantity'] for item in cj_order['orderProductList'])
                 qty_match = 'YES' if cj_items == supplier_items else 'NO'
                 price_diff = supplier_total - cj_total
