@@ -40,7 +40,7 @@ def get_cj_order_by_order_num(token, order_num):
     params = {
         "orderNumber": order_num,
         "page": 1,
-        "pageSize": 10  # <-- Corrected pageSize limit
+        "pageSize": 10
     }
     response = requests.get(url, headers=headers, params=params)
     response_json = response.json()
@@ -55,7 +55,7 @@ def get_cj_order_by_order_num(token, order_num):
         return None
 
 # ---------------------------
-# Get order details (productList)
+# Get order details
 
 def get_cj_order_detail(token, order_id):
     url = "https://developers.cjdropshipping.com/api2.0/v1/shopping/order/getOrderDetail"
@@ -72,7 +72,7 @@ def get_cj_order_detail(token, order_id):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (FINAL FULL WORKING VERSION 🚀)")
+st.title("Eleganto COG Audit Tool ✅ (FINAL CLEAN VERSION 🚀)")
 
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
 
@@ -111,21 +111,12 @@ if uploaded_file and st.button("Run Full Comparison"):
                 cj_total = float(cj_order['orderAmount'])
                 order_id = cj_order['orderId']
 
-                time.sleep(0.3)  # prevent hitting rate limit
+                time.sleep(0.3)
 
                 detail = get_cj_order_detail(token, order_id)
                 product_list = detail.get('productList', [])
 
-                # Filtering packaging products
-                exclude_keywords = ['case', 'box', 'storage', 'package', 'packaging']
-
-                cj_items = 0
-                for item in product_list:
-                    product_name = item.get('productName', '').lower()
-                    qty = item.get('quantity', 0)
-
-                    if not any(keyword in product_name for keyword in exclude_keywords):
-                        cj_items += qty
+                cj_items = sum(item.get('quantity', 0) for item in product_list)
 
                 qty_match = 'YES' if cj_items == supplier_items else 'NO'
                 price_diff = supplier_total - cj_total
