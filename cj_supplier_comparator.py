@@ -53,7 +53,7 @@ def get_cj_order_by_number(token, order_num):
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool ✅ (FULL FIXED VERSION WITH PROGRESS + DIFFERENCE REPORT)")
+st.title("Eleganto COG Audit Tool ✅ (FULL CLEAN FINAL VERSION)")
 
 # Supplier file uploader
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx or .csv)", type=["xlsx", "csv"])
@@ -88,52 +88,75 @@ if uploaded_file and st.button("Run Full Comparison"):
 
         token = get_cj_access_token()
 
-        report = []
+        full_report = []
         more_expensive = []
 
         progress_bar = st.progress(0)
         for idx, row in enumerate(supplier_orders.itertuples(), 1):
             supplier_order_id = str(row.ShopifyOrderID).replace('#', '').strip()
-            supplier_total = row.SupplierTotalPrice
+            supplier_total = round(row.SupplierTotalPrice, 2)
             supplier_items = row.SupplierItemCount
 
             cj_order = get_cj_order_by_number(token, supplier_order_id)
             if cj_order:
-                cj_total = float(cj_order.get('orderAmount', 0))
+                cj_total = round(float(cj_order.get('orderAmount', 0)), 2)
+
+                if 'orderProductList' in cj_order and cj_order['orderProductList']:
+                    cj_items = sum(item['orderQuantity'] for item in cj_order['orderProductList'])
+                else:
+                    cj_items = 0
+
+                qty_match = 'YES' if cj_items == supplier_items else 'NO'
+                price_diff = round(supplier_total - cj_total, 2)
 
                 if cj_total > supplier_total:
                     more_expensive.append({
                         "OrderID": supplier_order_id,
-                        "CJ_Price": round(cj_total, 2),
-                        "Supplier_Price": round(supplier_total, 2),
+                        "CJ_Price": cj_total,
+                        "Supplier_Price": supplier_total,
                         "Difference": round(cj_total - supplier_total, 2)
                     })
             else:
                 cj_total = np.nan
+                cj_items = np.nan
+                qty_match = 'NO DATA'
+                price_diff = np.nan
 
-            report.append({
+            full_report.append({
                 'OrderID': supplier_order_id,
-                'Total': supplier_total
+                'SupplierTotalPrice': supplier_total,
+                'CJOrderAmount': cj_total,
+                'PriceDifference': price_diff,
+                'SupplierItemCount': supplier_items,
+                'CJItemCount': cj_items,
+                'QuantityMatch': qty_match
             })
 
             progress_bar.progress(idx / len(supplier_orders))
-            time.sleep(0.05)  # to show smoother progress
+            time.sleep(0.03)
 
-        report_df = pd.DataFrame(report)
+        full_report_df = pd.DataFrame(full_report)
 
-        # Show CJ more expensive summary
+        # Summary of more expensive
         if more_expensive:
             expensive_df = pd.DataFrame(more_expensive)
-            st.write("⚠️ CJ more expensive orders:")
-            st.dataframe(expensive_df)
-
             total_overpaid = expensive_df['Difference'].sum()
             st.write(f"💰 **Total extra cost on CJ: ${total_overpaid:.2f}**")
+            st.write("⚠️ Orders where CJ is more expensive:")
+            st.dataframe(expensive_df)
         else:
-            st.write("✅ All orders cheaper or equal on CJ.")
+            st.write("✅ All CJ orders were cheaper or equal.")
 
-        # Export CSV in requested format
-        csv = report_df.to_csv(index=False)
+        # Show full report table:
+        st.write("📊 Full Comparison Table:")
+        st.dataframe(full_report_df)
+
+        # Export CSV (OrderID + Total)
+        export_df = full_report_df[['OrderID', 'SupplierTotalPrice']].copy()
+        export_df.rename(columns={'SupplierTotalPrice': 'Total'}, inplace=True)
+        export_df['Total'] = export_df['Total'].map(lambda x: f"{x:.2f}")
+
+        csv = export_df.to_csv(index=False)
         st.download_button("Download Final Report CSV", data=csv, file_name="eleganto_cog_final.csv", mime='text/csv')
 
     except Exception as e:
