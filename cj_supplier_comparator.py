@@ -5,19 +5,19 @@ import requests
 import json
 
 # ---------------------------
-# CJ API Credentials (masked here, but you will insert securely)
-CJ_API_KEY = "be10e4ca3f4649cfbf4f0c6e79b8df0b"
-
-# ---------------------------
 # CJ API Functions
 
-def get_cj_token():
+def get_cj_token(app_key, app_secret):
     url = "https://developers.cjdropshipping.com/api2.0/open/getAccessToken"
     data = {
-        "developerKey": CJ_API_KEY
+        "appKey": app_key,
+        "appSecret": app_secret
     }
     response = requests.post(url, json=data)
-    token = response.json()['data']['accessToken']
+    response_json = response.json()
+    if response_json['code'] != 200:
+        raise Exception(f"Failed to get CJ token: {response_json.get('msg', 'Unknown error')}")
+    token = response_json['data']['accessToken']
     return token
 
 def get_cj_order(order_id, token):
@@ -26,49 +26,58 @@ def get_cj_order(order_id, token):
     data = {
         "page": 1,
         "pageSize": 50,
-        "shopifyOrderId": order_id.replace("#", "")  # Remove '#' if exists
+        "shopifyOrderId": order_id.replace("#", "")
     }
     response = requests.post(url, headers=headers, json=data)
-    orders = response.json()['data']['list']
-    if orders:
-        total_amount = float(orders[0]['orderAmount'])
-        item_count = sum(item['orderQuantity'] for item in orders[0]['orderProductVos'])
-        return total_amount, item_count
-    else:
+    response_json = response.json()
+
+    if response_json['code'] != 200 or response_json['data'] is None or len(response_json['data']['list']) == 0:
         return None, None
+
+    orders = response_json['data']['list']
+    total_amount = float(orders[0]['orderAmount'])
+    item_count = sum(item['orderQuantity'] for item in orders[0]['orderProductVos'])
+    return total_amount, item_count
 
 # ---------------------------
 # Streamlit UI
 
-st.title("Eleganto COG Audit Tool v1.0")
+st.title("Eleganto COG Audit Tool v2.0")
 st.write("Upload your Supplier CSV file to compare with CJ Dropshipping.")
+
+# CJ API credentials input
+cj_app_key = st.text_input("Enter your CJ App Key")
+cj_app_secret = st.text_input("Enter your CJ App Secret")
 
 uploaded_file = st.file_uploader("Upload Supplier CSV (.xlsx)", type=["xlsx"])
 
-if uploaded_file:
-    supplier_df = pd.read_excel(uploaded_file)
+if uploaded_file and cj_app_key and cj_app_secret:
+    try:
+        token = get_cj_token(cj_app_key, cj_app_secret)
+    except Exception as e:
+        st.error(f"Error authenticating with CJ API: {e}")
+    else:
+        supplier_df = pd.read_excel(uploaded_file)
 
-    # Clean and prepare supplier file
-    supplier_df['Name'] = supplier_df['Name'].fillna(method='ffill')
+        # Clean and prepare supplier file
+        supplier_df['Name'] = supplier_df['Name'].fillna(method='ffill')
 
-    # Group per order
-    orders = supplier_df.groupby('Name').agg({
-        'Product fee': 'sum',
-        'QTY': 'sum',
-        'Total price': 'first'
-    }).reset_index()
+        # Group per order
+        orders = supplier_df.groupby('Name').agg({
+            'Product fee': 'sum',
+            'QTY': 'sum',
+            'Total price': 'first'
+        }).reset_index()
 
-    orders.rename(columns={
-        'Name': 'ShopifyOrderID',
-        'Product fee': 'SupplierProductCost',
-        'QTY': 'SupplierItemCount',
-        'Total price': 'SupplierTotalPrice'
-    }, inplace=True)
+        orders.rename(columns={
+            'Name': 'ShopifyOrderID',
+            'Product fee': 'SupplierProductCost',
+            'QTY': 'SupplierItemCount',
+            'Total price': 'SupplierTotalPrice'
+        }, inplace=True)
 
-    st.write("Found", len(orders), "orders in your file.")
+        st.write(f"Found {len(orders)} orders in your file.")
 
-    if st.button("Start Comparison with CJ"):
-        token = get_cj_token()
         report = []
 
         for idx, row in orders.iterrows():
