@@ -178,14 +178,15 @@ if uploaded_file and st.button("Run Full Comparison"):
         st.header("Full Orders Comparison Table")
         st.write(report_df)
 
-        # Export CSV in your required format:
-        export_df = report_df[['ShopifyOrderID', 'SupplierTotalPrice']].copy()
-        export_df['ShopifyOrderID'] = export_df['ShopifyOrderID'].str.replace('#', '').str.strip()
-        export_df['Total'] = export_df['SupplierTotalPrice'].map(lambda x: f"{x:.2f}")
-        export_df = export_df[['ShopifyOrderID', 'Total']]
+# Export CSV in your required format:
+export_df = report_df[['ShopifyOrderID', 'SupplierTotalPrice']].copy()
+export_df['ShopifyOrderID'] = export_df['ShopifyOrderID'].str.replace('#', '').str.strip()
+export_df['Total'] = export_df['SupplierTotalPrice'].map(lambda x: f"{x:.2f}")
+export_df = export_df.rename(columns={'ShopifyOrderID': 'Order'})
+export_df = export_df[['Order', 'Total']]
 
-        csv = export_df.to_csv(index=False)
-        st.download_button("Download Export CSV", data=csv, file_name="eleganto_cogs_export.csv", mime='text/csv')
+csv = export_df.to_csv(index=False)
+st.download_button("Download Export CSV", data=csv, file_name="eleganto_cogs_export.csv", mime='text/csv')
 
     except Exception as e:
         st.error(f"❌ Failed: {e}")
