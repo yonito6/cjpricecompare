@@ -57,6 +57,15 @@ def get_all_cj_orders(token, pages_to_pull=10):
     return cj_orders
 
 # ---------------------------
+# Helper function for safe float conversion
+
+def safe_float(val):
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return 0.0
+
+# ---------------------------
 # Streamlit UI
 
 st.title("Eleganto COG Audit Tool ✅")
@@ -86,13 +95,12 @@ if uploaded_file and st.button("Run Full Comparison"):
             'Total price': 'SupplierTotalPrice'
         }, inplace=True)
 
-        # Always round supplier prices to 2 digits
         supplier_orders['SupplierTotalPrice'] = supplier_orders['SupplierTotalPrice'].round(2)
 
         st.write(f"✅ Loaded {len(supplier_orders)} supplier orders.")
 
         token = get_cj_access_token()
-        cj_orders_all = get_all_cj_orders(token, pages_to_pull=15)  # pull ~750 orders
+        cj_orders_all = get_all_cj_orders(token, pages_to_pull=15)
 
         cj_order_map = {}
         for order in cj_orders_all:
@@ -102,7 +110,6 @@ if uploaded_file and st.button("Run Full Comparison"):
 
         supplier_order_ids = [str(x).replace('#', '').strip() for x in supplier_orders['ShopifyOrderID']]
 
-        # Keep only CJ orders matching supplier file
         cj_orders = {order_id: cj_order_map[order_id] for order_id in supplier_order_ids if order_id in cj_order_map}
         st.write(f"✅ Pulled {len(cj_orders)} matching CJ orders.")
 
@@ -119,7 +126,7 @@ if uploaded_file and st.button("Run Full Comparison"):
 
             cj_order = cj_orders.get(supplier_order_id)
             if cj_order:
-                cj_total = float(cj_order.get('orderAmount', 0))
+                cj_total = safe_float(cj_order.get('orderAmount'))
                 cj_items = 0
                 if 'orderProductList' in cj_order and cj_order['orderProductList']:
                     cj_items = sum(item['orderQuantity'] for item in cj_order['orderProductList'])
@@ -129,7 +136,7 @@ if uploaded_file and st.button("Run Full Comparison"):
                 if supplier_total > cj_total:
                     supplier_more_expensive_orders.append({
                         'OrderID': supplier_order_id,
-                        'Diff': round(supplier_total - cj_total, 2)
+                        'Diff': round(price_diff, 2)
                     })
             else:
                 cj_total = np.nan
@@ -163,7 +170,6 @@ if uploaded_file and st.button("Run Full Comparison"):
         st.write(f"✅ Total amount CJ: **${total_cj:.2f}**")
         st.write(f"✅ Total amount saved: **${total_saved:.2f}** (Private supplier)")
 
-        # Summary table for orders where supplier was more expensive
         st.header("💰 Supplier More Expensive Orders:")
         if supplier_more_expensive_orders:
             more_exp_df = pd.DataFrame(supplier_more_expensive_orders)
@@ -173,11 +179,9 @@ if uploaded_file and st.button("Run Full Comparison"):
         else:
             st.write("✅ Supplier never more expensive than CJ.")
 
-        # Show full detailed table
         st.header("Full Orders Comparison Table")
         st.write(report_df)
 
-        # Export CSV with renamed column
         export_df = report_df[['ShopifyOrderID', 'SupplierTotalPrice']].copy()
         export_df['ShopifyOrderID'] = export_df['ShopifyOrderID'].str.replace('#', '').str.strip()
         export_df['Total'] = export_df['SupplierTotalPrice'].map(lambda x: f"{x:.2f}")
