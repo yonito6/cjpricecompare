@@ -98,6 +98,7 @@ if uploaded_file and st.button("Run Full Comparison"):
         }, inplace=True)
 
         supplier_orders['SupplierTotalPrice'] = supplier_orders['SupplierTotalPrice'].apply(safe_float).round(2)
+        supplier_orders['SupplierItemCount'] = supplier_orders['SupplierItemCount'].apply(safe_float)
 
         st.write(f"✅ Loaded {len(supplier_orders)} supplier orders.")
 
@@ -129,9 +130,8 @@ if uploaded_file and st.button("Run Full Comparison"):
             cj_order = cj_orders.get(supplier_order_id)
             if cj_order:
                 cj_total = safe_float(cj_order.get('orderAmount'))
-                cj_items = 0
-                if 'orderProductList' in cj_order and cj_order['orderProductList']:
-                    cj_items = sum(safe_float(item['orderQuantity']) for item in cj_order['orderProductList'])
+                cj_items = sum([safe_float(item.get('orderQuantity')) for item in cj_order.get('orderProductList', [])], start=0.0)
+
                 qty_match = 'YES' if cj_items == supplier_items else 'NO'
                 price_diff = supplier_total - cj_total
 
@@ -185,7 +185,7 @@ if uploaded_file and st.button("Run Full Comparison"):
         st.write(report_df)
 
         export_df = report_df[['ShopifyOrderID', 'SupplierTotalPrice']].copy()
-        export_df['ShopifyOrderID'] = export_df['ShopifyOrderID'].str.replace('#', '').str.strip()
+        export_df['ShopifyOrderID'] = export_df['ShopifyOrderID'].astype(str).str.replace('#', '').str.strip()
         export_df['Total'] = export_df['SupplierTotalPrice'].map(lambda x: f"{x:.2f}")
         export_df = export_df.rename(columns={'ShopifyOrderID': 'Order'})
         export_df = export_df[['Order', 'Total']]
