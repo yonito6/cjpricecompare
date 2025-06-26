@@ -39,7 +39,7 @@ def get_all_cj_orders(token, pages_to_pull=10):
     headers = {'CJ-Access-Token': token}
     cj_orders = []
 
-    for page in range(1, pages_to_pull+1):
+    for page in range(1, pages_to_pull + 1):
         params = {
             "pageNum": page,
             "pageSize": 50
@@ -121,7 +121,7 @@ if uploaded_file and st.button("Run Full Comparison"):
 
         progress = st.progress(0)
         for idx, row in supplier_orders.iterrows():
-            progress.progress((idx+1) / len(supplier_orders))
+            progress.progress((idx + 1) / len(supplier_orders))
 
             supplier_order_id = str(row['ShopifyOrderID']).replace('#', '').strip()
             supplier_total = safe_float(row['SupplierTotalPrice'])
@@ -130,7 +130,13 @@ if uploaded_file and st.button("Run Full Comparison"):
             cj_order = cj_orders.get(supplier_order_id)
             if cj_order:
                 cj_total = safe_float(cj_order.get('orderAmount'))
-                cj_items = sum([safe_float(item.get('orderQuantity')) for item in cj_order.get('orderProductList', [])], start=0.0)
+
+                cj_items_list = []
+                for item in cj_order.get('orderProductList', []):
+                    qty = item.get('orderQuantity', 0)
+                    cj_items_list.append(safe_float(qty))
+
+                cj_items = sum(cj_items_list, start=0.0)
 
                 qty_match = 'YES' if cj_items == supplier_items else 'NO'
                 price_diff = supplier_total - cj_total
