@@ -61,6 +61,8 @@ def get_all_cj_orders(token, pages_to_pull=10):
 
 def safe_float(val):
     try:
+        if isinstance(val, str):
+            val = val.replace('$', '').replace(',', '').strip()
         return float(val)
     except (TypeError, ValueError):
         return 0.0
@@ -95,7 +97,7 @@ if uploaded_file and st.button("Run Full Comparison"):
             'Total price': 'SupplierTotalPrice'
         }, inplace=True)
 
-        supplier_orders['SupplierTotalPrice'] = supplier_orders['SupplierTotalPrice'].round(2)
+        supplier_orders['SupplierTotalPrice'] = supplier_orders['SupplierTotalPrice'].apply(safe_float).round(2)
 
         st.write(f"✅ Loaded {len(supplier_orders)} supplier orders.")
 
@@ -121,15 +123,15 @@ if uploaded_file and st.button("Run Full Comparison"):
             progress.progress((idx+1) / len(supplier_orders))
 
             supplier_order_id = str(row['ShopifyOrderID']).replace('#', '').strip()
-            supplier_total = row['SupplierTotalPrice']
-            supplier_items = row['SupplierItemCount']
+            supplier_total = safe_float(row['SupplierTotalPrice'])
+            supplier_items = safe_float(row['SupplierItemCount'])
 
             cj_order = cj_orders.get(supplier_order_id)
             if cj_order:
                 cj_total = safe_float(cj_order.get('orderAmount'))
                 cj_items = 0
                 if 'orderProductList' in cj_order and cj_order['orderProductList']:
-                    cj_items = sum(item['orderQuantity'] for item in cj_order['orderProductList'])
+                    cj_items = sum(safe_float(item['orderQuantity']) for item in cj_order['orderProductList'])
                 qty_match = 'YES' if cj_items == supplier_items else 'NO'
                 price_diff = supplier_total - cj_total
 
