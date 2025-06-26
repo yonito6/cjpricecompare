@@ -3,8 +3,8 @@ import pandas as pd
 import numpy as np
 import requests
 import json
-from datetime import datetime, timedelta
 import time
+from datetime import datetime, timedelta
 
 # ---------------------------
 # Your CJ Seller Credentials
@@ -28,8 +28,7 @@ def get_cj_access_token():
     if response_json['code'] != 200:
         raise Exception(f"Failed to get CJ token: {response_json.get('message', 'Unknown error')}")
 
-    token = response_json['data']['accessToken']
-    return token
+    return response_json['data']['accessToken']
 
 # ---------------------------
 # CJ API Order Fetch using paging
@@ -107,36 +106,50 @@ if uploaded_file and st.button("Run Full Comparison"):
 
         cj_order_map = {}
         for order in cj_orders_all:
-            order_num = order.get('orderNum', None)
+            order_num = order.get('orderNum')
             if order_num:
                 cj_order_map[str(order_num).replace('#', '').strip()] = order
 
         supplier_order_ids = [str(x).replace('#', '').strip() for x in supplier_orders['ShopifyOrderID']]
 
-        cj_orders = {order_id: cj_order_map[order_id] for order_id in supplier_order_ids if order_id in cj_order_map}
+        cj_orders = {oid: cj_order_map[oid] for oid in supplier_order_ids if oid in cj_order_map}
         st.write(f"✅ Pulled {len(cj_orders)} matching CJ orders.")
 
         report = []
         supplier_more_expensive_orders = []
 
         progress = st.progress(0)
+
         for idx, row in supplier_orders.iterrows():
             progress.progress((idx + 1) / len(supplier_orders))
 
             supplier_order_id = str(row['ShopifyOrderID']).replace('#', '').strip()
-            supplier_total = safe_float(row['SupplierTotalPrice'])
-            supplier_items = safe_float(row['SupplierItemCount'])
+            try:
+                supplier_total = float(safe_float(row['SupplierTotalPrice']))
+                supplier_items = float(safe_float(row['SupplierItemCount']))
+            except Exception as err:
+                st.error(f"❌ Error parsing supplier values for {supplier_order_id}: {err}")
+                continue
 
             cj_order = cj_orders.get(supplier_order_id)
             if cj_order:
-                cj_total = safe_float(cj_order.get('orderAmount'))
+                try:
+                    cj_total = float(safe_float(cj_order.get('orderAmount')))
+                except Exception as err:
+                    st.error(f"❌ Error parsing CJ orderAmount for {supplier_order_id}: {err}")
+                    cj_total = 0.0
 
                 cj_items_list = []
                 for item in cj_order.get('orderProductList', []):
-                    qty = item.get('orderQuantity', 0)
-                    cj_items_list.append(safe_float(qty))
+                    qty_raw = item.get('orderQuantity', 0)
+                    qty_clean = safe_float(qty_raw)
+                    cj_items_list.append(float(qty_clean))
 
-                cj_items = sum(cj_items_list, start=0.0)
+                try:
+                    cj_items = sum(cj_items_list, start=0.0)
+                except Exception as sum_err:
+                    st.error(f"❌ Sum error for order {supplier_order_id}: {sum_err}")
+                    cj_items = 0.0
 
                 qty_match = 'YES' if cj_items == supplier_items else 'NO'
                 price_diff = supplier_total - cj_total
