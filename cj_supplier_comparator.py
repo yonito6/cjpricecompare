@@ -199,3 +199,4 @@ if uploaded_file and st.button("Run Full Comparison"):
 
     except Exception as e:
         st.error(f"❌ Failed: {e}")
+
