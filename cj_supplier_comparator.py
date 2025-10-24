@@ -8,8 +8,36 @@ from datetime import datetime, timedelta
 
 # ---------------------------
 # Your CJ Seller Credentials
+# (Tip: consider moving these to environment variables)
 CJ_EMAIL = "elgantoshop@gmail.com"
 CJ_API_KEY = "7e07bce6c57b4d918da681a3d85d3bed"
+
+# ---------------------------
+# Utils
+
+def find_col(df: pd.DataFrame, candidates, required=True) -> str:
+    """
+    Return the actual column name in df that matches one of the candidate names
+    (case/space-insensitive). Raises a helpful error if not found and required=True.
+    """
+    # normalize once
+    normalized = {c.strip().lower(): c for c in df.columns}
+    for cand in candidates:
+        key = cand.strip().lower()
+        if key in normalized:
+            return normalized[key]
+    if required:
+        raise KeyError(
+            f"None of the expected columns found: {candidates}. "
+            f"Available columns: {list(df.columns)}"
+        )
+    return None
+
+def safe_float(val):
+    try:
+        return float(val)
+    except (TypeError, ValueError):
+        return 0.0
 
 # ---------------------------
 # CJ API Authentication
@@ -25,7 +53,7 @@ def get_cj_access_token():
     response = requests.post(url, headers=headers, json=data)
     response_json = response.json()
 
-    if response_json['code'] != 200:
+    if response_json.get('code') != 200:
         raise Exception(f"Failed to get CJ token: {response_json.get('message', 'Unknown error')}")
 
     return response_json['data']['accessToken']
@@ -46,23 +74,15 @@ def get_all_cj_orders(token, pages_to_pull=10):
         response = requests.get(url, headers=headers, params=params)
         response_json = response.json()
 
-        if response_json['code'] == 200:
-            cj_orders += response_json['data']['list']
+        if response_json.get('code') == 200:
+            data = response_json.get('data') or {}
+            cj_orders += (data.get('list') or [])
         else:
             break
 
         time.sleep(0.2)
 
     return cj_orders
-
-# ---------------------------
-# Helper function for safe float conversion
-
-def safe_float(val):
-    try:
-        return float(val)
-    except (TypeError, ValueError):
-        return 0.0
 
 # ---------------------------
 # Streamlit UI
@@ -79,37 +99,63 @@ if uploaded_file and st.button("Run Full Comparison"):
         else:
             supplier_df = pd.read_csv(uploaded_file)
 
-        # Clean numeric columns that may be strings
-        supplier_df['Product fee'] = pd.to_numeric(supplier_df['Product fee'], errors='coerce')
-        supplier_df['QTY'] = pd.to_numeric(supplier_df['QTY'], errors='coerce')
-        supplier_df['Total price'] = pd.to_numeric(supplier_df['Total price'], errors='coerce')
+        # --------- Resolve column names flexibly ---------
+        # Order name
+        name_col = find_col(supplier_df, [
+            "Name", "Order", "Order Name", "Shopify Order", "Order ID"
+        ])
 
-        # Forward-fill order name
-        supplier_df['Name'] = supplier_df['Name'].fillna(method='ffill')
+        # Quantity: accept QTY or Lineitem quantity (your sheet) and common variants
+        qty_col = find_col(supplier_df, [
+            "QTY", "Qty", "Quantity", "Lineitem quantity", "Line item quantity", "Line Item Quantity"
+        ])
 
-        supplier_orders = supplier_df.groupby('Name').agg({
-            'Product fee': 'sum',
-            'QTY': 'sum',
-            'Total price': 'first'
+        # Product fee / cost
+        pf_col = find_col(supplier_df, [
+            "Product fee", "Product Fee", "Product cost", "Cost", "Item cost", "Unit cost"
+        ])
+
+        # Total price
+        total_col = find_col(supplier_df, [
+            "Total price", "Total", "Order Total", "Total Price"
+        ])
+
+        # --------- Clean numerics ---------
+        supplier_df[pf_col]    = pd.to_numeric(supplier_df[pf_col], errors='coerce')
+        supplier_df[qty_col]   = pd.to_numeric(supplier_df[qty_col], errors='coerce')
+        supplier_df[total_col] = pd.to_numeric(supplier_df[total_col], errors='coerce')
+
+        # Forward-fill order name (common structure: only first row has it)
+        supplier_df[name_col] = supplier_df[name_col].fillna(method='ffill')
+
+        # --------- Aggregate to order level ---------
+        supplier_orders = supplier_df.groupby(name_col).agg({
+            pf_col: 'sum',
+            qty_col: 'sum',
+            total_col: 'first'   # first non-null total per order header row
         }).reset_index()
 
+        # Standardize schema used downstream
         supplier_orders.rename(columns={
-            'Name': 'ShopifyOrderID',
-            'Product fee': 'SupplierProductCost',
-            'QTY': 'SupplierItemCount',
-            'Total price': 'SupplierTotalPrice'
+            name_col: 'ShopifyOrderID',
+            pf_col: 'SupplierProductCost',
+            qty_col: 'SupplierItemCount',
+            total_col: 'SupplierTotalPrice'
         }, inplace=True)
 
+        # Ensure rounding for display consistency
         supplier_orders['SupplierTotalPrice'] = supplier_orders['SupplierTotalPrice'].round(2)
 
         st.write(f"✅ Loaded {len(supplier_orders)} supplier orders.")
 
+        # --------- Pull CJ orders ---------
         token = get_cj_access_token()
         cj_orders_all = get_all_cj_orders(token, pages_to_pull=15)
 
+        # Map CJ orders by number (strip '#')
         cj_order_map = {}
         for order in cj_orders_all:
-            order_num = order.get('orderNum')
+            order_num = (order or {}).get('orderNum')
             if order_num:
                 cj_order_map[str(order_num).replace('#', '').strip()] = order
 
@@ -118,6 +164,7 @@ if uploaded_file and st.button("Run Full Comparison"):
         cj_orders = {oid: cj_order_map[oid] for oid in supplier_order_ids if oid in cj_order_map}
         st.write(f"✅ Pulled {len(cj_orders)} matching CJ orders.")
 
+        # --------- Build report ---------
         report = []
         supplier_more_expensive_orders = []
 
@@ -134,7 +181,7 @@ if uploaded_file and st.button("Run Full Comparison"):
             if cj_order:
                 cj_total = safe_float(cj_order.get('orderAmount'))
                 cj_items = 0
-                if 'orderProductList' in cj_order and cj_order['orderProductList']:
+                if cj_order.get('orderProductList'):
                     cj_items = sum(safe_float(item.get('orderQuantity', 0)) for item in cj_order['orderProductList'])
                 qty_match = 'YES' if cj_items == supplier_items else 'NO'
                 price_diff = supplier_total - cj_total
@@ -160,14 +207,14 @@ if uploaded_file and st.button("Run Full Comparison"):
                 'QuantityMatch': qty_match
             })
 
-            time.sleep(0.05)
+            time.sleep(0.02)
 
         progress.empty()
 
         report_df = pd.DataFrame(report)
 
-        total_supplier = report_df['SupplierTotalPrice'].sum()
-        total_cj = report_df['CJOrderAmount'].sum()
+        total_supplier = report_df['SupplierTotalPrice'].sum(skipna=True)
+        total_cj = report_df['CJOrderAmount'].sum(skipna=True)
         total_saved = total_cj - total_supplier
 
         # ---- Top Summary ----
@@ -181,13 +228,14 @@ if uploaded_file and st.button("Run Full Comparison"):
             more_exp_df = pd.DataFrame(supplier_more_expensive_orders)
             more_exp_sum = more_exp_df['Diff'].sum()
             st.write(f"Total extra paid to supplier: **${more_exp_sum:.2f}**")
-            st.write(more_exp_df)
+            st.dataframe(more_exp_df, use_container_width=True)
         else:
             st.write("✅ Supplier never more expensive than CJ.")
 
         st.header("Full Orders Comparison Table")
-        st.write(report_df)
+        st.dataframe(report_df, use_container_width=True)
 
+        # ---- Export CSV (Order, Total) ----
         export_df = report_df[['ShopifyOrderID', 'SupplierTotalPrice']].copy()
         export_df['ShopifyOrderID'] = export_df['ShopifyOrderID'].astype(str).str.replace('#', '').str.strip()
         export_df['Total'] = export_df['SupplierTotalPrice'].map(lambda x: f"{x:.2f}")
@@ -199,4 +247,3 @@ if uploaded_file and st.button("Run Full Comparison"):
 
     except Exception as e:
         st.error(f"❌ Failed: {e}")
-
