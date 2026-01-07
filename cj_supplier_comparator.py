@@ -2,15 +2,18 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import requests
-import json
 import time
-from datetime import datetime, timedelta
 
 # ---------------------------
 # Your CJ Seller Credentials
 # (Tip: consider moving these to environment variables)
 CJ_EMAIL = "elgantoshop@gmail.com"
 CJ_API_KEY = "7e07bce6c57b4d918da681a3d85d3bed"
+
+# ---------------------------
+# Watch case adjustment
+WATCH_CASE_KEYWORDS = ["watch case"]   # you can add more keywords if needed
+WATCH_CASE_FEE_USD = 2.9              # add once per order if watch case is present with $0 fee
 
 # ---------------------------
 # Utils
@@ -20,7 +23,6 @@ def find_col(df: pd.DataFrame, candidates, required=True) -> str:
     Return the actual column name in df that matches one of the candidate names
     (case/space-insensitive). Raises a helpful error if not found and required=True.
     """
-    # normalize once
     normalized = {c.strip().lower(): c for c in df.columns}
     for cand in candidates:
         key = cand.strip().lower()
@@ -38,6 +40,12 @@ def safe_float(val):
         return float(val)
     except (TypeError, ValueError):
         return 0.0
+
+def text_contains_any(text: str, keywords) -> bool:
+    if pd.isna(text):
+        return False
+    s = str(text).strip().lower()
+    return any(k.lower() in s for k in keywords)
 
 # ---------------------------
 # CJ API Authentication
@@ -105,7 +113,7 @@ if uploaded_file and st.button("Run Full Comparison"):
             "Name", "Order", "Order Name", "Shopify Order", "Order ID"
         ])
 
-        # Quantity: accept QTY or Lineitem quantity (your sheet) and common variants
+        # Quantity
         qty_col = find_col(supplier_df, [
             "QTY", "Qty", "Quantity", "Lineitem quantity", "Line item quantity", "Line Item Quantity"
         ])
@@ -120,13 +128,36 @@ if uploaded_file and st.button("Run Full Comparison"):
             "Total price", "Total", "Order Total", "Total Price"
         ])
 
+        # Line item name (for detecting Watch Case)
+        item_name_col = find_col(supplier_df, [
+            "Lineitem name", "Line item name", "Line Item Name",
+            "Item", "Product", "Product name", "Title", "SKU", "Variant"
+        ])
+
         # --------- Clean numerics ---------
-        supplier_df[pf_col]    = pd.to_numeric(supplier_df[pf_col], errors='coerce')
-        supplier_df[qty_col]   = pd.to_numeric(supplier_df[qty_col], errors='coerce')
+        supplier_df[pf_col]    = pd.to_numeric(supplier_df[pf_col], errors='coerce').fillna(0)
+        supplier_df[qty_col]   = pd.to_numeric(supplier_df[qty_col], errors='coerce').fillna(0)
         supplier_df[total_col] = pd.to_numeric(supplier_df[total_col], errors='coerce')
 
         # Forward-fill order name (common structure: only first row has it)
         supplier_df[name_col] = supplier_df[name_col].fillna(method='ffill')
+
+        # --------- WATCH CASE FEE LOGIC (per order, add once) ---------
+        # Condition: line item name contains "watch case" AND product fee == 0
+        supplier_df["_is_watch_case"] = supplier_df[item_name_col].apply(
+            lambda x: text_contains_any(x, WATCH_CASE_KEYWORDS)
+        )
+        supplier_df["_watch_case_zero_fee"] = supplier_df["_is_watch_case"] & (supplier_df[pf_col] == 0)
+
+        watch_case_by_order = (
+            supplier_df.groupby(name_col)["_watch_case_zero_fee"]
+            .any()
+            .reset_index()
+            .rename(columns={"_watch_case_zero_fee": "HasZeroPriceWatchCase"})
+        )
+        watch_case_by_order["WatchCaseFee"] = np.where(
+            watch_case_by_order["HasZeroPriceWatchCase"], WATCH_CASE_FEE_USD, 0.0
+        )
 
         # --------- Aggregate to order level ---------
         supplier_orders = supplier_df.groupby(name_col).agg({
@@ -134,6 +165,10 @@ if uploaded_file and st.button("Run Full Comparison"):
             qty_col: 'sum',
             total_col: 'first'   # first non-null total per order header row
         }).reset_index()
+
+        # Merge watch case fee
+        supplier_orders = supplier_orders.merge(watch_case_by_order, on=name_col, how="left")
+        supplier_orders["WatchCaseFee"] = supplier_orders["WatchCaseFee"].fillna(0.0)
 
         # Standardize schema used downstream
         supplier_orders.rename(columns={
@@ -143,10 +178,29 @@ if uploaded_file and st.button("Run Full Comparison"):
             total_col: 'SupplierTotalPrice'
         }, inplace=True)
 
+        # Apply adjustments
+        # - Add watch case fee to SupplierTotalPrice (used for comparison)
+        # - Also add to SupplierProductCost (so your supplier cost is truthful)
+        supplier_orders["SupplierTotalPriceAdjusted"] = (
+            pd.to_numeric(supplier_orders["SupplierTotalPrice"], errors="coerce").fillna(0) + supplier_orders["WatchCaseFee"]
+        )
+        supplier_orders["SupplierProductCostAdjusted"] = (
+            pd.to_numeric(supplier_orders["SupplierProductCost"], errors="coerce").fillna(0) + supplier_orders["WatchCaseFee"]
+        )
+
         # Ensure rounding for display consistency
-        supplier_orders['SupplierTotalPrice'] = supplier_orders['SupplierTotalPrice'].round(2)
+        supplier_orders["SupplierTotalPrice"] = pd.to_numeric(supplier_orders["SupplierTotalPrice"], errors="coerce").fillna(0).round(2)
+        supplier_orders["SupplierTotalPriceAdjusted"] = supplier_orders["SupplierTotalPriceAdjusted"].round(2)
+        supplier_orders["SupplierProductCost"] = pd.to_numeric(supplier_orders["SupplierProductCost"], errors="coerce").fillna(0).round(2)
+        supplier_orders["SupplierProductCostAdjusted"] = supplier_orders["SupplierProductCostAdjusted"].round(2)
+        supplier_orders["WatchCaseFee"] = supplier_orders["WatchCaseFee"].round(2)
 
         st.write(f"✅ Loaded {len(supplier_orders)} supplier orders.")
+        st.write(f"✅ Watch Case fee rule: +${WATCH_CASE_FEE_USD:.2f} once per order if 'watch case' exists with $0 fee.")
+
+        # Optional: show how many orders got adjusted
+        adjusted_count = int((supplier_orders["WatchCaseFee"] > 0).sum())
+        st.write(f"🔧 Orders adjusted for Watch Case fee: **{adjusted_count}**")
 
         # --------- Pull CJ orders ---------
         token = get_cj_access_token()
@@ -160,7 +214,6 @@ if uploaded_file and st.button("Run Full Comparison"):
                 cj_order_map[str(order_num).replace('#', '').strip()] = order
 
         supplier_order_ids = [str(x).replace('#', '').strip() for x in supplier_orders['ShopifyOrderID']]
-
         cj_orders = {oid: cj_order_map[oid] for oid in supplier_order_ids if oid in cj_order_map}
         st.write(f"✅ Pulled {len(cj_orders)} matching CJ orders.")
 
@@ -174,8 +227,11 @@ if uploaded_file and st.button("Run Full Comparison"):
             progress.progress((idx + 1) / len(supplier_orders))
 
             supplier_order_id = str(row['ShopifyOrderID']).replace('#', '').strip()
-            supplier_total = row['SupplierTotalPrice']
+
+            # IMPORTANT: use adjusted supplier total for comparison
+            supplier_total = row['SupplierTotalPriceAdjusted']
             supplier_items = row['SupplierItemCount']
+            watch_case_fee = row.get("WatchCaseFee", 0.0)
 
             cj_order = cj_orders.get(supplier_order_id)
             if cj_order:
@@ -199,7 +255,9 @@ if uploaded_file and st.button("Run Full Comparison"):
 
             report.append({
                 'ShopifyOrderID': supplier_order_id,
-                'SupplierTotalPrice': supplier_total,
+                'SupplierTotalPriceOriginal': row['SupplierTotalPrice'],
+                'WatchCaseFeeAdded': watch_case_fee,
+                'SupplierTotalPriceAdjusted': supplier_total,
                 'CJOrderAmount': cj_total,
                 'PriceDifference': price_diff,
                 'SupplierItemCount': supplier_items,
@@ -213,17 +271,17 @@ if uploaded_file and st.button("Run Full Comparison"):
 
         report_df = pd.DataFrame(report)
 
-        total_supplier = report_df['SupplierTotalPrice'].sum(skipna=True)
+        total_supplier = report_df['SupplierTotalPriceAdjusted'].sum(skipna=True)
         total_cj = report_df['CJOrderAmount'].sum(skipna=True)
         total_saved = total_cj - total_supplier
 
         # ---- Top Summary ----
-        st.header("📊 Total Sum Up Information")
-        st.write(f"✅ Total amount Supplier: **${total_supplier:.2f}**")
+        st.header("📊 Total Sum Up Information (Adjusted for Watch Case)")
+        st.write(f"✅ Total amount Supplier (adjusted): **${total_supplier:.2f}**")
         st.write(f"✅ Total amount CJ: **${total_cj:.2f}**")
         st.write(f"✅ Total amount saved: **${total_saved:.2f}** (Private supplier)")
 
-        st.header("💰 Supplier More Expensive Orders:")
+        st.header("💰 Supplier More Expensive Orders (Adjusted):")
         if supplier_more_expensive_orders:
             more_exp_df = pd.DataFrame(supplier_more_expensive_orders)
             more_exp_sum = more_exp_df['Diff'].sum()
@@ -236,14 +294,20 @@ if uploaded_file and st.button("Run Full Comparison"):
         st.dataframe(report_df, use_container_width=True)
 
         # ---- Export CSV (Order, Total) ----
-        export_df = report_df[['ShopifyOrderID', 'SupplierTotalPrice']].copy()
+        # Export adjusted totals as "Total"
+        export_df = report_df[['ShopifyOrderID', 'SupplierTotalPriceAdjusted']].copy()
         export_df['ShopifyOrderID'] = export_df['ShopifyOrderID'].astype(str).str.replace('#', '').str.strip()
-        export_df['Total'] = export_df['SupplierTotalPrice'].map(lambda x: f"{x:.2f}")
+        export_df['Total'] = export_df['SupplierTotalPriceAdjusted'].map(lambda x: f"{x:.2f}")
         export_df = export_df.rename(columns={'ShopifyOrderID': 'Order'})
         export_df = export_df[['Order', 'Total']]
 
         csv = export_df.to_csv(index=False)
-        st.download_button("Download Export CSV", data=csv, file_name="eleganto_cogs_export.csv", mime='text/csv')
+        st.download_button(
+            "Download Export CSV (Adjusted)",
+            data=csv,
+            file_name="eleganto_cogs_export_adjusted.csv",
+            mime='text/csv'
+        )
 
     except Exception as e:
         st.error(f"❌ Failed: {e}")
