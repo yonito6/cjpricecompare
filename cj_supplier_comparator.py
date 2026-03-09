@@ -12,7 +12,7 @@ CJ_API_KEY = "7e07bce6c57b4d918da681a3d85d3bed"
 
 # ---------------------------
 # Watch case adjustment
-WATCH_CASE_KEYWORDS = ["watch case"]   # you can add more keywords if needed
+WATCH_CASE_KEYWORDS = ["watch case", "case"]   # you can add more keywords if needed
 WATCH_CASE_FEE_USD = 2.9              # add once per order if watch case is present with $0 fee
 
 # ---------------------------
@@ -311,3 +311,4 @@ if uploaded_file and st.button("Run Full Comparison"):
 
     except Exception as e:
         st.error(f"❌ Failed: {e}")
+
